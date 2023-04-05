@@ -10,6 +10,16 @@
 #include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include 
 
+typedef struct {
+    pid_t system_manager_pid;
+} shm;
+
+FILE *log_file;
 sem_t *sem_log;
+
+// Shared memory
+int shmid;
+shm* shared_memory;
 
