@@ -7,20 +7,48 @@ Hugo Sobral de Barros 2020234332
 #include "functions.h"
 
 void init() {
-    printf("SEMAPHORE FOR LOG CREATED\n");
     log_file = fopen("log.txt", "a");
 
     // inicializacao do semaforo para o fich log
     sem_unlink("SEM_LOG");
+    sem_unlink("SEM_SHM");
     sem_log = sem_open("SEM_LOG", O_CREAT | O_EXCL, 0700, 1);
+    sem_shm = sem_open("SEM_SHM", O_CREAT | O_EXCL, 0700, 1);
 #if DEBUG
-    if (sem_log == SEM_FAILED) {
-        write_log("OPENING SEMAPHORE FAILED");
-    }
-    else {
+    if (sem_log == SEM_FAILED)
+        write_log("OPENING SEMAPHORE FOR LOG FAILED");
+    else
         write_log("SEMAPHORE FOR LOG CREATED");
-    }
+
+    if (sem_shm == SEM_FAILED)
+        write_log("OPENING SEMAPHORE FOR SHARED MEMORY FAILED");
+    else
+        write_log("SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
+
+    init_shared_mem();
+}
+
+void init_shared_mem() {
+    // inicializacao da memoria partilhada
+    int size = sizeof(shm) + sizeof(sensor_data);
+    if ((shmid = shmget(IPC_PRIVATE, size, IPC_CREAT | 0777)) == -1) {
+        write_log("ERROR CREATING SHARED MEMORY");
+        exit(1);
+    }
+    if ((shared_memory = (shm*) shmat(shmid, (void*) 0, 0)) == (shm*) -1) {
+        write_log("SHMAT ERROR");
+        exit(1);
+    }
+#if DEBUG
+    write_log("SHARED MEMORY CREATED");
+#endif
+    shared_memory->queue_sz = 0;
+    shared_memory->n_workers = 0;
+    shared_memory->max_keys = 0;
+    shared_memory->max_sensors = 0;
+    shared_memory->max_alerts = 0;
+    shared_memory->sensors = NULL;
 }
 
 void terminate() {
@@ -28,6 +56,12 @@ void terminate() {
 
     sem_close(sem_log);
     sem_unlink("SEM_LOG");
+
+    sem_close(sem_shm);
+    sem_unlink("SEM_SHM");
+
+    shmdt(shared_memory);
+    shmctl(shmid, IPC_RMID, NULL);
 
     fclose(log_file);
 
@@ -53,7 +87,6 @@ void write_log(char* msg) {
     text = (char*) malloc((strlen(hour) + strlen(msg)) * sizeof(char) + 1);
     sprintf(text, "%s %s", hour, msg);
     sem_wait(sem_log);
-    printf("aqui\n");
     fprintf(log_file, "%s\n", text);
     fflush(log_file);
     sem_post(sem_log);
@@ -194,6 +227,7 @@ void alerts_watcher() {
 }
 
 void read_config(char* config_file) {
+    write_log("READING CONFIG FILE");
     FILE* file;
     char* text;
     long file_size;
@@ -211,15 +245,29 @@ void read_config(char* config_file) {
 
     fread(text, file_size, 1, file);
     text[file_size] = '\0';
-    printf("\n\n%s\n\n", text);
 
-    /* char *token;
-    token = strtok(text, "\n");
+    char* token = strtok(text, "\n");
+    sem_wait(sem_shm);
+    shared_memory->queue_sz = atoi(token);
 
-    while( token != NULL ) {
-        printf( " %s\n", token );
+    int i = 0;
+    while (token != NULL) {
         token = strtok(NULL, "\n");
-    } */
+        if (i == 0) {
+            shared_memory->n_workers = atoi(token);
+        }
+        else if (i == 1) {
+            shared_memory->max_keys = atoi(token);
+        }
+        else if (i == 2) {
+            shared_memory->max_sensors = atoi(token);
+        }
+        else if (i == 3) {
+            shared_memory->max_alerts = atoi(token);
+        }
+        i++;
+    }
+    sem_post(sem_shm);
 
     free(text);
     fclose(file);
@@ -229,18 +277,20 @@ void system_manager(char* config_file) {
     // inicializar programa
     init();
 
-    printf("config_file: %s\n", config_file);
-
+    write_log("HOME_IOT SIMULATOR STARTING");
+    
+    // ler config file
     read_config(config_file);
 
-    // ler config file
-    int n = 1;
+    write_log("CONFIG FILE READ");
+    
+    int n = shared_memory->n_workers;
     // inicializar worker
     for (int i = 0; i < n; i++) {
         int worker_forks;
         if ((worker_forks = fork()) == 0) {
-            char* text = (char*) malloc((strlen("WORKER  READY") + sizeof(n)) * sizeof(char) + 1);
-            sprintf(text, "WORKER %d READY", n);
+            char* text = (char*) malloc((strlen("WORKER  READY") + sizeof(i)) * sizeof(char) + 1);
+            sprintf(text, "WORKER %d READY", i);
             write_log(text);
             free(text);
             worker();

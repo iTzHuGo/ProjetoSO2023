@@ -28,17 +28,24 @@ typedef struct {
 
 // informação sobre as regras para geração de alertas
 typedef struct {
-    sensor_data* sensors; 
+    sensor_data* sensors;
+    int queue_sz;
+    int n_workers;
+    int max_keys;
+    int max_sensors;
+    int max_alerts;
 } shm;
 
 FILE *log_file;
 sem_t *sem_log;
+sem_t *sem_shm;
 
 // Shared memory
 int shmid;
 shm* shared_memory;
 
 void init();
+void init_shared_mem();
 void terminate();
 void write_log(char* msg);
 void user_console();
