@@ -22,14 +22,14 @@ int main(int argc, char* argv[])
     }
 
     int f;
-    
-    if((f = fork()) == 0) {
+    if ((f = fork()) == 0) {
         sensor(argv[1], argv[2], argv[3], argv[4], argv[5]);
         exit(0);
-    } else if(f == -1){
+    }
+    else if (f == -1) {
         write_log("ERROR FORKING SENSOR");
     }
-
+    wait(NULL);
     // enviar esta informacao para o sys manager via named pipe
 
     return 0;

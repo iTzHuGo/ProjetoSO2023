@@ -1,6 +1,6 @@
 //Ana Rita Martins Oliveira 2020213684
 //Hugo Sobral de Barros 2020234332
-#define DEBUG 1
+#define DEBUG 0
 #define BUFFER_SIZE 512
 #define LOG_FILE "log.txt"
 
@@ -12,10 +12,13 @@
 #include <semaphore.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <signal.h>
 
 
 typedef struct {
@@ -29,6 +32,11 @@ typedef struct {
 // informação sobre as regras para geração de alertas
 typedef struct {
     sensor_data* sensors;
+
+    pthread_t console_reader;
+    pthread_t sensor_reader;
+    pthread_t dispatcher;
+
     int queue_sz;
     int n_workers;
     int max_keys;
@@ -36,9 +44,9 @@ typedef struct {
     int max_alerts;
 } shm;
 
-FILE *log_file;
-sem_t *sem_log;
-sem_t *sem_shm;
+FILE* log_file;
+sem_t* sem_log;
+sem_t* sem_shm;
 
 // Shared memory
 int shmid;
@@ -52,3 +60,4 @@ void user_console();
 void sensor(char* id, char* interval, char* key, char* min, char* max);
 void system_manager(char* config_file);
 bool is_digit(char argument[]);
+void sigint(int signum);

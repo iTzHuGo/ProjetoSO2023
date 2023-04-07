@@ -19,6 +19,7 @@ int main(int argc, char* argv[])
     } else if(f == -1){
         write_log("ERROR FORKING USER CONSOLE");
     }
+    wait(NULL);
 
     // enviar esta informacao para o sys manager via named pipe
 

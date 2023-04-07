@@ -7,7 +7,7 @@ Hugo Sobral de Barros 2020234332
 #include "functions.h"
 
 void init() {
-    log_file = fopen("log.txt", "a");
+    
 
     // inicializacao do semaforo para o fich log
     sem_unlink("SEM_LOG");
@@ -48,12 +48,18 @@ void init_shared_mem() {
     shared_memory->max_keys = 0;
     shared_memory->max_sensors = 0;
     shared_memory->max_alerts = 0;
+
     shared_memory->sensors = NULL;
+}
+
+void sigint(int signum) {
+    write_log("SIGNAL SIGINT RECEIVED");
+    terminate();
 }
 
 void terminate() {
     write_log("HOME_IOT SIMULATOR CLOSING");
-
+    wait(NULL);
     sem_close(sem_log);
     sem_unlink("SEM_LOG");
 
@@ -64,6 +70,8 @@ void terminate() {
     shmctl(shmid, IPC_RMID, NULL);
 
     fclose(log_file);
+
+    
 
     exit(0);
 }
@@ -101,16 +109,15 @@ bool is_digit(char argument[]) {
     int i = 0;
     while (argument[i] != '\0') {
         if (!isdigit(argument[i])) {
-            write_log("INVALID ARGUMENT");
             return false;
         }
         i++;
     }
-
     return true;
 }
 
 void user_console() {
+    init();
 #if DEBUG
     char* text = NULL;
     int pid = getpid();
@@ -157,7 +164,7 @@ void user_console() {
                     write_log("ID INVALIDO");
                     continue;
                 }
-                if (!is_digit(instruction[2]) || !is_digit(instruction[3])) { // TODO faltam coisas
+                if (!is_digit(instruction[2]) || !is_digit(instruction[3])) {
                     write_log("MIN OU MAX INVALIDO");
                     continue;
                 }
@@ -181,7 +188,7 @@ void user_console() {
                 printf("List_alerts\n");
             }
             else {
-                write_log("INVALID PARAMETER\n");
+                write_log("INVALID PARAMETER");
             }
         }
     }
@@ -199,6 +206,15 @@ void sensor(char* id, char* interval, char* key, char* min, char* max) {
     write_log(text);
     free(text);
 #endif
+    printf("Sensor %s created\n", id);
+    sem_wait(sem_shm);
+    shared_memory->sensors->id = id;
+    shared_memory->sensors->interval = atoi(interval);
+    shared_memory->sensors->key = key;
+    shared_memory->sensors->min = atoi(min);
+    shared_memory->sensors->max = atoi(max);
+    sem_post(sem_shm);
+
     exit(0);
 }
 
@@ -246,23 +262,63 @@ void read_config(char* config_file) {
     fread(text, file_size, 1, file);
     text[file_size] = '\0';
 
-    char* token = strtok(text, "\n");
     sem_wait(sem_shm);
+    char* token = strtok(text, "\n\r");
+    if (!is_digit(token)) {
+        write_log("QUEUE_SZ INVALID eheh");
+        exit(1);
+    }
+    if (atoi(token) < 1) {
+        write_log("QUEUE_SZ INVALID");
+        exit(1);
+    }
     shared_memory->queue_sz = atoi(token);
 
     int i = 0;
     while (token != NULL) {
-        token = strtok(NULL, "\n");
+        token = strtok(NULL, "\n\r");
         if (i == 0) {
+            if (!is_digit(token)) {
+                write_log("N_WORKERS INVALID");
+                exit(1);
+            }
+            if (atoi(token) < 1) {
+                write_log("N_WORKERS INVALID");
+                exit(1);
+            }
             shared_memory->n_workers = atoi(token);
         }
         else if (i == 1) {
+            if (!is_digit(token)) {
+                write_log("MAX_KEYS INVALID");
+                exit(1);
+            }
+            if (atoi(token) < 1) {
+                write_log("MAX_KEYS INVALID");
+                exit(1);
+            }
             shared_memory->max_keys = atoi(token);
         }
         else if (i == 2) {
+            if (!is_digit(token)) {
+                write_log("MAX_SENSORS INVALID");
+                exit(1);
+            }
+            if (atoi(token) < 1) {
+                write_log("MAX_SENSORS INVALID");
+                exit(1);
+            }
             shared_memory->max_sensors = atoi(token);
         }
         else if (i == 3) {
+            if (!is_digit(token)) {
+                write_log("MAX_ALERTS INVALID");
+                exit(1);
+            }
+            if (atoi(token) < 0) {
+                write_log("MAX_ALERTS INVALID");
+                exit(1);
+            }
             shared_memory->max_alerts = atoi(token);
         }
         i++;
@@ -273,17 +329,38 @@ void read_config(char* config_file) {
     fclose(file);
 }
 
+void* console_reader() {
+    write_log("CONSOLE READER STARTING");
+    return NULL;
+}
+
+void* sensor_reader() {
+    write_log("SENSOR READER STARTING");
+    return NULL;
+}
+
+void* dispatcher() {
+    write_log("DISPATCHER STARTING");
+    return NULL;
+}
+
 void system_manager(char* config_file) {
     // inicializar programa
     init();
 
     write_log("HOME_IOT SIMULATOR STARTING");
-    
+
     // ler config file
     read_config(config_file);
 
     write_log("CONFIG FILE READ");
-    
+
+    // criar threads
+    pthread_create(&shared_memory->console_reader, NULL, console_reader, NULL);
+    pthread_create(&shared_memory->sensor_reader, NULL, sensor_reader, NULL);
+    pthread_create(&shared_memory->dispatcher, NULL, dispatcher, NULL);
+
+
     int n = shared_memory->n_workers;
     // inicializar worker
     for (int i = 0; i < n; i++) {
@@ -312,7 +389,12 @@ void system_manager(char* config_file) {
         write_log("ERROR CREATING ALERTS WATCHER");
     }
 
-    // criacao de threads vvvv
+    for (int i = 0; i < n + 1; i++) {
+        wait(NULL);
+    }
 
-    terminate();
+
+    pthread_join(shared_memory->console_reader, NULL);
+    pthread_join(shared_memory->sensor_reader, NULL);
+    pthread_join(shared_memory->dispatcher, NULL);
 }
