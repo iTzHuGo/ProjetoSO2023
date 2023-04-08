@@ -1,9 +1,12 @@
 //Ana Rita Martins Oliveira 2020213684
 //Hugo Sobral de Barros 2020234332
+
+// Defines
 #define DEBUG 0
 #define BUFFER_SIZE 512
 #define LOG_FILE "log.txt"
 
+// Includes
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,18 +21,17 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <unistd.h>
-#include <signal.h>
 
-
+// Informacao sobre os sensores
 typedef struct {
-    char* id;
+    char id[32];
     int interval;
-    char* key;
+    char key[32];
     int min;
     int max;
 } sensor_data;
 
-// informação sobre as regras para geração de alertas
+// Informacao sobre a shared memory
 typedef struct {
     sensor_data* sensors;
 
@@ -44,6 +46,7 @@ typedef struct {
     int max_alerts;
 } shm;
 
+// Variaveis globais
 FILE* log_file;
 sem_t* sem_log;
 sem_t* sem_shm;
@@ -52,6 +55,7 @@ sem_t* sem_shm;
 int shmid;
 shm* shared_memory;
 
+// Funcoes
 void init();
 void init_shared_mem();
 void terminate();
