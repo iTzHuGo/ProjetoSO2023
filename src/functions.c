@@ -221,8 +221,6 @@ void user_console() {
             }
         }
     }
-
-    exit(0);
 }
 
 //{identificador do sensor} {intervalo entre envios em segundos (>=0)} {chave} {min} {max}
@@ -236,7 +234,6 @@ void sensor(char* id, char* interval, char* key, char* min, char* max) {
     free(text);
 #endif
     // Enviar dados ao servidor pelo pipe
-    exit(0);
 }
 
 void worker() {
@@ -249,7 +246,6 @@ void worker() {
     free(text);
 #endif
     // faz coisas de worker
-    exit(0);
 }
 
 
@@ -263,7 +259,6 @@ void alerts_watcher() {
     free(text);
 #endif
     //faz coisas de alerts watcher
-    exit(0);
 }
 
 // funcao que le o ficheiro de configuracao

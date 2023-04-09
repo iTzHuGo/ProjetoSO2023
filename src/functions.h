@@ -24,9 +24,9 @@
 
 // Informacao sobre os sensores
 typedef struct {
-    char id[32];
+    char id[33];
     int interval;
-    char key[32];
+    char key[33];
     int min;
     int max;
 } sensor_data;

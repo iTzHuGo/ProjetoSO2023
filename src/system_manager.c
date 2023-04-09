@@ -3,8 +3,7 @@
 
 #include "functions.h"
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     // Verifica se o número de argumentos é válido
     if (argc != 2) {
         fprintf(stderr, "home_iot {ficheiro de configuração}\n");
