@@ -61,7 +61,6 @@ void init_shared_mem();
 void terminate();
 void write_log(char* msg);
 void user_console();
-void sensor(char* id, char* interval, char* key, char* min, char* max);
+void sensor(char* id, int interval, char* key, int min, int max);
 void system_manager(char* config_file);
 bool is_digit(char argument[]);
-void sigint(int signum);

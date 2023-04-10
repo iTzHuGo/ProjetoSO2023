@@ -18,6 +18,7 @@ void init() {
     sem_unlink("SEM_SHM");
     sem_shm = sem_open("SEM_SHM", O_CREAT | O_EXCL, 0700, 1);
 
+
 #if DEBUG
     if (sem_log == SEM_FAILED)
         write_log("[DEBUG] OPENING SEMAPHORE FOR LOG FAILED");
@@ -59,7 +60,6 @@ void init_shared_mem() {
     shared_memory->max_sensors = 0;
     shared_memory->max_alerts = 0;
 
-    shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data));
 }
 
 // termina o programa
@@ -196,12 +196,18 @@ void user_console() {
                     printf("MAX INVALIDO\n\n");
                     continue;
                 }
+                if (atoi(instruction[3]) > atoi(instruction[4])) {
+                    printf("MIN MAIOR QUE MAX\n\n");
+                    continue;
+                }
 
-                printf("Alert added\n");
+                printf("OK\n\n");
+#if DEBUG
                 printf("id: %s\n", instruction[1]);
                 printf("chave: %s\n", instruction[2]);
                 printf("min: %s\n", instruction[3]);
                 printf("max: %s\n\n", instruction[4]);
+#endif
             }
             else if (strcmp(instruction[0], "remove_alert") == 0) {
                 // verificar se os argumentos sao validos
@@ -224,7 +230,7 @@ void user_console() {
 }
 
 //{identificador do sensor} {intervalo entre envios em segundos (>=0)} {chave} {min} {max}
-void sensor(char* id, char* interval, char* key, char* min, char* max) {
+void sensor(char* id, int interval, char* key, int min, int max) {
 #if DEBUG
     char* text = NULL;
     int pid = getpid();
@@ -347,6 +353,9 @@ void read_config(char* config_file) {
             }
             // guardar o numero maximo de sensores
             shared_memory->max_sensors = atoi(token);
+
+            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * shared_memory->max_sensors);
+
             // inicializar os sensores
             for (int j = 0; j < shared_memory->max_sensors; j++) {
                 strcpy(shared_memory->sensors[j].id, "");
@@ -379,22 +388,26 @@ void read_config(char* config_file) {
 
 // thread console reader
 void* console_reader() {
-    write_log("CONSOLE READER STARTING");
+    write_log("THREAD CONSOLE_READER CREATED");
     // faz coisas de console reader
+    pthread_exit(NULL);
+
     return NULL;
 }
 
 // thread sensor reader
 void* sensor_reader() {
-    write_log("SENSOR READER STARTING");
+    write_log("THREAD SENSOR_READER CREATED");
     // faz coisas de sensor reader
+    pthread_exit(NULL);
     return NULL;
 }
 
 // thread dispatcher
 void* dispatcher() {
-    write_log("DISPATCHER STARTING");
+    write_log("THREAD DISPATCHER CREATED");
     // faz coisas de dispatcher
+    pthread_exit(NULL);
     return NULL;
 }
 
@@ -412,7 +425,6 @@ void system_manager(char* config_file) {
     pthread_create(&shared_memory->sensor_reader, NULL, sensor_reader, NULL);
     pthread_create(&shared_memory->dispatcher, NULL, dispatcher, NULL);
 
-
     int n = shared_memory->n_workers;
     // inicializar worker
     for (int i = 0; i < n; i++) {
@@ -429,6 +441,7 @@ void system_manager(char* config_file) {
             write_log("ERROR CREATING WORKER");
             exit(1);
         }
+        wait(NULL);
     }
 
     // inicializar alerts_watcher
@@ -442,11 +455,7 @@ void system_manager(char* config_file) {
         write_log("ERROR CREATING ALERTS WATCHER");
         exit(1);
     }
-
-    // esperar que os workers e o alerts watcher terminem
-    for (int i = 0; i < n + 1; i++) {
-        wait(NULL);
-    }
+    wait(NULL);
 
     // terminar as threads
     pthread_join(shared_memory->console_reader, NULL);
