@@ -33,18 +33,7 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // Inicializa o processo do sensor
-    int f;
-    if ((f = fork()) == 0) {
-        sensor(argv[1], atoi(argv[2]), argv[3], atoi(argv[4]), atoi(argv[5]));
-        exit(0);
-    }
-    else if (f == -1) {
-        printf("ERROR FORKING SENSOR");
-    }
-
-    // Espera que o sensor termine
-    wait(NULL);
+    sensor(argv[1], atoi(argv[2]), argv[3], atoi(argv[4]), atoi(argv[5]));
 
     return 0;
 }

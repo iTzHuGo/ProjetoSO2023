@@ -14,16 +14,7 @@ int main(int argc, char* argv[]) {
     // int user_console_id = atoi(argv[1]);	// identificador da consola
 
     // Inicializa o processo do user console
-    int f;
-    if ((f = fork()) == 0) {
-        user_console();
-        exit(0);
-    } else if (f == -1) {
-        write_log("ERROR FORKING USER CONSOLE");
-    }
-
-    // Espera que o user console termine
-    wait(NULL);
+    user_console();
 
     return 0;
 }

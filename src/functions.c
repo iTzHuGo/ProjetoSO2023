@@ -14,22 +14,45 @@ void init() {
     sem_unlink("SEM_LOG");
     sem_log = sem_open("SEM_LOG", O_CREAT | O_EXCL, 0700, 1);
 
-    // inicializacao do semaforo para a memoria partilhada
-    sem_unlink("SEM_SHM");
-    sem_shm = sem_open("SEM_SHM", O_CREAT | O_EXCL, 0700, 1);
-
-
 #if DEBUG
     if (sem_log == SEM_FAILED)
         write_log("[DEBUG] OPENING SEMAPHORE FOR LOG FAILED");
     else
         write_log("[DEBUG] SEMAPHORE FOR LOG CREATED");
+#endif
 
+    // inicializacao do semaforo para a memoria partilhada
+    sem_unlink("SEM_SHM");
+    sem_shm = sem_open("SEM_SHM", O_CREAT | O_EXCL, 0700, 1);
+
+#if DEBUG
     if (sem_shm == SEM_FAILED)
         write_log("[DEBUG] OPENING SEMAPHORE FOR SHARED MEMORY FAILED");
     else
         write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
+
+    // inicializacao sensor pipe
+    if ((mkfifo(SENSOR_PIPE, O_CREAT | O_EXCL | 0600) < 0) && (errno != EEXIST)) {
+        perror("mkfifo() failed");
+        exit(1);
+    }
+    if ((fd_sensor_pipe = open(SENSOR_PIPE, O_RDWR)) == -1) {
+        write_log("ERROR OPENING SENSOR PIPE");
+        exit(1);
+    }
+
+    // inicializacao console pipe
+    if ((mkfifo(CONSOLE_PIPE, O_CREAT | O_EXCL | 0600) < 0) && (errno != EEXIST)) {
+        write_log("ERROR CREATING CONSOLE PIPE");
+        exit(1);
+    }
+
+    if ((fd_console_pipe = open(CONSOLE_PIPE, O_RDWR)) == -1) {
+        write_log("ERROR OPENING CONSOLE PIPE");
+        exit(1);
+    }
+
 
     init_shared_mem();
 }
@@ -80,6 +103,13 @@ void terminate() {
     // terminar memoria partilhada
     shmdt(shared_memory);
     shmctl(shmid, IPC_RMID, NULL);
+
+    // fechar pipes
+    close(fd_sensor_pipe);
+    unlink(SENSOR_PIPE);
+
+    close(fd_console_pipe);
+    unlink(CONSOLE_PIPE);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -155,6 +185,13 @@ void user_console() {
 
     char line[BUFFER_SIZE], instruction[5][BUFFER_SIZE];
     char* token;
+    int fd_named_pipe;
+
+    // abrir o pipe
+    if ((fd_named_pipe = open(CONSOLE_PIPE, O_RDWR)) < 0) {
+        write_log("ERROR OPENING CONSOLE PIPE");
+        exit(1);
+    }
 
     // leitura do input do utilizador
     while (fgets(line, BUFFER_SIZE, stdin) != NULL) {
@@ -167,10 +204,12 @@ void user_console() {
             }
 
             if (strcmp(instruction[0], "exit") == 0) {
+                close(fd_named_pipe);
                 break;
             }
             else if (strcmp(instruction[0], "stats") == 0) {
                 printf("Stats\n\n");
+                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
             }
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
@@ -227,6 +266,8 @@ void user_console() {
             }
         }
     }
+
+    close(fd_named_pipe);
 }
 
 //{identificador do sensor} {intervalo entre envios em segundos (>=0)} {chave} {min} {max}
@@ -239,7 +280,26 @@ void sensor(char* id, int interval, char* key, int min, int max) {
     write_log(text);
     free(text);
 #endif
-    // Enviar dados ao servidor pelo pipe
+
+    int fd_named_pipe;
+
+    // abrir o pipe
+    if ((fd_named_pipe = open(SENSOR_PIPE, O_RDWR)) < 0) {
+        write_log("ERROR OPENING SENSOR PIPE");
+        exit(1);
+    }
+    // generate SENS1#HOUSETEM#20 with the 20 a random number between min and max every interval seconds
+
+    char message[BUFFER_SIZE];
+    while (1) {
+        sprintf(message, "%s#%s#%d", id, key, rand() % (max - min + 1) + min);
+        // print message
+        printf("%s\n", message);
+        write(fd_named_pipe, message, strlen(message) + 1);
+        sleep(interval);
+    }
+
+    close(fd_named_pipe);
 }
 
 void worker() {
@@ -354,6 +414,7 @@ void read_config(char* config_file) {
             // guardar o numero maximo de sensores
             shared_memory->max_sensors = atoi(token);
 
+            // TODO problema para depois
             shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * shared_memory->max_sensors);
 
             // inicializar os sensores
@@ -388,18 +449,33 @@ void read_config(char* config_file) {
 
 // thread console reader
 void* console_reader() {
-    write_log("THREAD CONSOLE_READER CREATED");
-    // faz coisas de console reader
-    pthread_exit(NULL);
+    int received_length;
+    char received[BUFFER_SIZE];
 
+    write_log("THREAD CONSOLE_READER CREATED");
+
+    while (1) {
+        received_length = read(fd_console_pipe, received, sizeof(received));
+        received[received_length - 1] = '\0';
+        printf("RECEIVED: %s\n", received);
+    }
+
+    pthread_exit(NULL);
     return NULL;
 }
 
 // thread sensor reader
 void* sensor_reader() {
+    int received_length;
+    char received[BUFFER_SIZE];
+
     write_log("THREAD SENSOR_READER CREATED");
-    // faz coisas de sensor reader
-    pthread_exit(NULL);
+
+    while (1) {
+        received_length = read(fd_sensor_pipe, received, sizeof(received));
+        received[received_length - 1] = '\0';
+        printf("SENSOR: %s\n", received);
+    }    pthread_exit(NULL);
     return NULL;
 }
 
@@ -413,6 +489,8 @@ void* dispatcher() {
 
 // funcao que cria as threads, os workers e o alerts watcher
 void system_manager(char* config_file) {
+    init();
+
     write_log("HOME_IOT SIMULATOR STARTING");
 
     // ler config file
@@ -421,9 +499,9 @@ void system_manager(char* config_file) {
     write_log("CONFIG FILE READ");
 
     // criar threads
-    pthread_create(&shared_memory->console_reader, NULL, console_reader, NULL);
-    pthread_create(&shared_memory->sensor_reader, NULL, sensor_reader, NULL);
-    pthread_create(&shared_memory->dispatcher, NULL, dispatcher, NULL);
+    pthread_create(&console_reader_thread, NULL, console_reader, NULL);
+    pthread_create(&sensor_reader_thread, NULL, sensor_reader, NULL);
+    pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
 
     int n = shared_memory->n_workers;
     // inicializar worker
@@ -441,7 +519,6 @@ void system_manager(char* config_file) {
             write_log("ERROR CREATING WORKER");
             exit(1);
         }
-        wait(NULL);
     }
 
     // inicializar alerts_watcher
@@ -455,10 +532,15 @@ void system_manager(char* config_file) {
         write_log("ERROR CREATING ALERTS WATCHER");
         exit(1);
     }
+
+    for (int i = 0; i < n; i++) {
+        wait(NULL);
+    }
+
     wait(NULL);
 
     // terminar as threads
-    pthread_join(shared_memory->console_reader, NULL);
-    pthread_join(shared_memory->sensor_reader, NULL);
-    pthread_join(shared_memory->dispatcher, NULL);
+    pthread_join(console_reader_thread, NULL);
+    pthread_join(sensor_reader_thread, NULL);
+    pthread_join(dispatcher_thread, NULL);
 }

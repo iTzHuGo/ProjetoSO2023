@@ -10,20 +10,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Inicializa o programa
-    init();
-
-    // Cria o processo do system manager
-    int f;
-    if ((f = fork()) == 0) {
-        system_manager(argv[1]);
-        exit(0);
-    } else if (f == -1) { // Erro ao criar o processo
-        write_log("ERROR CREATING SYSTEM MANAGER");
-    }
-
-    // Espera que o system manager termine
-    wait(NULL);
+    system_manager(argv[1]);
 
     // Termina o programa
     terminate();
