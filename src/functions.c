@@ -213,9 +213,12 @@ void user_console() {
             }
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
+                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+
             }
             else if (strcmp(instruction[0], "sensors") == 0) {
                 printf("Sensors\n\n");
+                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
             }
             else if (strcmp(instruction[0], "add_alert") == 0) {
                 // verificar se os argumentos sao validos
@@ -239,8 +242,9 @@ void user_console() {
                     printf("MIN MAIOR QUE MAX\n\n");
                     continue;
                 }
-
-                printf("OK\n\n");
+                char msg[BUFFER_SIZE * 5];
+                sprintf(msg, "%s %s %s %s %s", instruction[0], instruction[1], instruction[2], instruction[3], instruction[4]);
+                write(fd_named_pipe, msg, strlen(msg) + 1);
 #if DEBUG
                 printf("id: %s\n", instruction[1]);
                 printf("chave: %s\n", instruction[2]);
@@ -254,11 +258,14 @@ void user_console() {
                     printf("ID INVALIDO\n");
                     continue;
                 }
-
+                char msg[BUFFER_SIZE * 2];
+                sprintf(msg, "%s %s", instruction[0], instruction[1]);
+                write(fd_named_pipe, msg, strlen(msg) + 1);
                 printf("Alert %s removed successfully!\n\n", instruction[1]);
             }
             else if (strcmp(instruction[0], "list_alerts") == 0) {
                 printf("List_alerts\n\n");
+                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
             }
             // comando invalido
             else {
@@ -288,7 +295,6 @@ void sensor(char* id, int interval, char* key, int min, int max) {
         write_log("ERROR OPENING SENSOR PIPE");
         exit(1);
     }
-    // generate SENS1#HOUSETEM#20 with the 20 a random number between min and max every interval seconds
 
     char message[BUFFER_SIZE];
     while (1) {

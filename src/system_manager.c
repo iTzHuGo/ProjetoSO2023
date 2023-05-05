@@ -9,11 +9,10 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "home_iot {ficheiro de configuração}\n");
         return 0;
     }
+    
+    signal(SIGINT, terminate);
 
     system_manager(argv[1]);
-
-    // Termina o programa
-    terminate();
 
     return 0;
 }
