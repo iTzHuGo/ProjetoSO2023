@@ -33,6 +33,13 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    if (atoi(argv[4]) > atoi(argv[5])) {
+        printf("SENSOR MIN/MAX INVALID");
+        exit(1);
+    }
+
+
+
     sensor(argv[1], atoi(argv[2]), argv[3], atoi(argv[4]), atoi(argv[5]));
 
     return 0;

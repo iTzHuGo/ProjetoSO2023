@@ -37,21 +37,34 @@ typedef struct {
     int max;
 } sensor_data;
 
-// Informacao sobre a shared memory
 typedef struct {
-    sensor_data* sensors;
-
     int queue_sz;
     int n_workers;
     int max_keys;
     int max_sensors;
     int max_alerts;
+} config_data;
+
+// Informacao sobre a shared memory
+typedef struct {
+    sensor_data* sensors;
+    // char internal_queue[][];
+
+    // message_t* internal_queue;
 } shm;
+
+typedef struct {
+    char msg[BUFFER_SIZE];
+    int priority;
+    struct node* next;
+} node;
 
 // Variaveis globais
 FILE* log_file;
 sem_t* sem_log;
 sem_t* sem_shm;
+config_data config;
+int terminate_threads;
 
 pthread_t console_reader_thread;
 pthread_t sensor_reader_thread;
@@ -63,6 +76,20 @@ int fd_sensor_pipe;
 // Shared memory
 int shmid;
 shm* shared_memory;
+
+// Pids
+pid_t pid_console;
+pid_t pid_sensor;
+pid_t pid_system_manager;
+
+// Mutexes
+pthread_mutex_t mutex_queue;
+
+// Cond vars
+pthread_cond_t cond_queue;
+
+// Queue
+node* queue;
 
 // Funcoes
 void init();

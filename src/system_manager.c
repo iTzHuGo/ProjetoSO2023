@@ -9,6 +9,8 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "home_iot {ficheiro de configuração}\n");
         return 0;
     }
+
+    pid_system_manager = getpid();
     
     signal(SIGINT, terminate);
 

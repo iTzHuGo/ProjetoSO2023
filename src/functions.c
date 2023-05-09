@@ -1,11 +1,37 @@
 // Ana Rita Martins Oliveira 2020213684
 // Hugo Sobral de Barros 2020234332
 
+/*
+    * meter as posicoes da lista a -1 e se for -1 e porque esta vazia escrever la
+    * meter a cena das condicoes dos pids e depois o kill no terminate
+    * meter os mutexes
+    * meter as variaveis de condicao
+    * no dispatcher ele faz o signal
+    * nos readers ele faz o cond wait pelo signal do dispatcher
+    * 
+    * criar a internal queue dentro do system manager como diz no enunciado
+    * 
+    * as mensagens enviadas pelo sensor tem menor prioridade que as mensagens enviadas pelo console reader
+    * enviando primeiro as mensagens do console reader e depois as do sensor para os processos worker
+    * 
+    * se a fila estiver cheia, descarta a mensagem do sensor
+    * se a fila estiver cheia, da lock no mutex e espera que a fila fique vazia para meter a cena do console reader
+    * 
+    * os workers  e o dispatcher comunicam com unnamed pipes
+    * quando uma entrada é enviada para um worker, essa entrada é removida da lista e o worker passa a estar 'busy' para que o dispatcher nao lhe volte a enviar uma tarefa ate ele acabar a que recebeu antes 
+    * 
+    * quando um worker termina de processar o pedido, deve colocar o seu estado como 'free'
+    * 
+    * ha 2 tipos de mensagens, as que sao enviadas pelo user console e as que sao enviadas peloo sensor
+*/
+
 #include "functions.h"
 
 // inicializa o programa
 void init() {
     printf("SIMULATOR STARTING \n");
+
+    terminate_threads = 0;
 
     // abertura do ficheiro log
     log_file = fopen("log.txt", "a");
@@ -77,11 +103,11 @@ void init_shared_mem() {
 #endif
 
     // inicializacao dos campos da memoria partilhada
-    shared_memory->queue_sz = 0;
-    shared_memory->n_workers = 0;
-    shared_memory->max_keys = 0;
-    shared_memory->max_sensors = 0;
-    shared_memory->max_alerts = 0;
+    // shared_memory->queue_sz = 0;
+    // shared_memory->n_workers = 0;
+    // shared_memory->max_keys = 0;
+    // shared_memory->max_sensors = 0;
+    // shared_memory->max_alerts = 0;
 
 }
 
@@ -89,8 +115,12 @@ void init_shared_mem() {
 void terminate() {
     write_log("HOME_IOT SIMULATOR CLOSING");
 
+    terminate_threads = 1;
+
     // terminar processos
     wait(NULL);
+
+
 
     // terminar semaforo do log
     sem_close(sem_log);
@@ -172,6 +202,15 @@ void user_console() {
     write_log(text);
     free(text);
 #endif
+    char line[BUFFER_SIZE], instruction[5][BUFFER_SIZE];
+    char* token;
+    int fd_named_pipe;
+
+    // abrir o pipe
+    if ((fd_named_pipe = open(CONSOLE_PIPE, O_RDWR)) < 0) {
+        printf("ERROR OPENING CONSOLE PIPE");
+        exit(1);
+    }
 
     // apresentacao do menu
     printf("Menu:\n");
@@ -183,15 +222,6 @@ void user_console() {
     printf("\tremove_alert [id]\n\tRemove uma regra de alerta do sistema\n\n");
     printf("\tlist_alerts\n\tLista todas as regras de alerta que existem no sistema\n\n");
 
-    char line[BUFFER_SIZE], instruction[5][BUFFER_SIZE];
-    char* token;
-    int fd_named_pipe;
-
-    // abrir o pipe
-    if ((fd_named_pipe = open(CONSOLE_PIPE, O_RDWR)) < 0) {
-        write_log("ERROR OPENING CONSOLE PIPE");
-        exit(1);
-    }
 
     // leitura do input do utilizador
     while (fgets(line, BUFFER_SIZE, stdin) != NULL) {
@@ -292,7 +322,7 @@ void sensor(char* id, int interval, char* key, int min, int max) {
 
     // abrir o pipe
     if ((fd_named_pipe = open(SENSOR_PIPE, O_RDWR)) < 0) {
-        write_log("ERROR OPENING SENSOR PIPE");
+        printf("ERROR OPENING SENSOR PIPE");
         exit(1);
     }
 
@@ -377,7 +407,7 @@ void read_config(char* config_file) {
         exit(1);
     }
     // guardar o tamanho da fila
-    shared_memory->queue_sz = atoi(token);
+    config.queue_sz = atoi(token);
 
     // obter cada linha do texto lido do ficheiro de configuracao e verificar se e um numero inteiro
     int i = 0;
@@ -394,7 +424,7 @@ void read_config(char* config_file) {
                 exit(1);
             }
             // guardar o numero de workers
-            shared_memory->n_workers = atoi(token);
+            config.n_workers = atoi(token);
         }
         else if (i == 1) {
             if (!is_digit(token)) {
@@ -406,7 +436,7 @@ void read_config(char* config_file) {
                 exit(1);
             }
             // guardar o numero maximo de chaves
-            shared_memory->max_keys = atoi(token);
+            config.max_keys = atoi(token);
         }
         else if (i == 2) {
             if (!is_digit(token)) {
@@ -418,13 +448,13 @@ void read_config(char* config_file) {
                 exit(1);
             }
             // guardar o numero maximo de sensores
-            shared_memory->max_sensors = atoi(token);
+            config.max_sensors = atoi(token);
 
             // TODO problema para depois
-            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * shared_memory->max_sensors);
+            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * config.max_sensors);
 
             // inicializar os sensores
-            for (int j = 0; j < shared_memory->max_sensors; j++) {
+            for (int j = 0; j < config.max_sensors; j++) {
                 strcpy(shared_memory->sensors[j].id, "");
                 strcpy(shared_memory->sensors[j].key, "");
                 shared_memory->sensors[j].interval = 0;
@@ -442,7 +472,7 @@ void read_config(char* config_file) {
                 exit(1);
             }
             // guardar o numero maximo de alertas
-            shared_memory->max_alerts = atoi(token);
+            config.max_alerts = atoi(token);
         }
         i++;
     }
@@ -455,15 +485,28 @@ void read_config(char* config_file) {
 
 // thread console reader
 void* console_reader() {
+    if (getppid() == getpid()) {
+        write_log("CONSOLE_READER ALREADY CREATED");
+        pthread_exit(NULL);
+        return NULL;
+    }
     int received_length;
     char received[BUFFER_SIZE];
 
     write_log("THREAD CONSOLE_READER CREATED");
 
-    while (1) {
+    while (!terminate_threads) {
         received_length = read(fd_console_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
         printf("RECEIVED: %s\n", received);
+        // encontrar a primeira posicao vazia
+        /* for (int i = 0; i < config.queue_sz; i++) {
+            if (strcmp(internal_queue[i], "") == 0) {
+                // copiar para a posicao vazia
+                strcpy(internal_queue[i], received);
+                break;
+            }
+        } */
     }
 
     pthread_exit(NULL);
@@ -472,21 +515,40 @@ void* console_reader() {
 
 // thread sensor reader
 void* sensor_reader() {
+    if (getppid() == getpid()) {
+        write_log("SENSOR_READER ALREADY CREATED");
+        pthread_exit(NULL);
+        return NULL;
+    }
     int received_length;
     char received[BUFFER_SIZE];
 
     write_log("THREAD SENSOR_READER CREATED");
 
-    while (1) {
+    while (!terminate_threads) {
         received_length = read(fd_sensor_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
         printf("SENSOR: %s\n", received);
-    }    pthread_exit(NULL);
+        // encontrar a primeira posicao vazia
+        /* for (int i = 0; i < config.queue_sz; i++) {
+            if (strcmp(internal_queue[i], "") == 0) {
+                // copiar para a posicao vazia
+                strcpy(internal_queue[i], received);
+                break;
+            }
+        } */
+    }
+
+    pthread_exit(NULL);
     return NULL;
 }
 
 // thread dispatcher
 void* dispatcher() {
+    if (getppid() == getpid()) {
+        write_log("DISPATCHER ALREADY RUNNING");
+        exit(1);
+    }
     write_log("THREAD DISPATCHER CREATED");
     // faz coisas de dispatcher
     pthread_exit(NULL);
@@ -495,6 +557,12 @@ void* dispatcher() {
 
 // funcao que cria as threads, os workers e o alerts watcher
 void system_manager(char* config_file) {
+    if (getppid() == getpid()) {
+        write_log("SYSTEM MANAGER ALREADY RUNNING");
+        exit(1);
+    }
+
+
     init();
 
     write_log("HOME_IOT SIMULATOR STARTING");
@@ -504,12 +572,15 @@ void system_manager(char* config_file) {
 
     write_log("CONFIG FILE READ");
 
-    // criar threads
-    pthread_create(&console_reader_thread, NULL, console_reader, NULL);
-    pthread_create(&sensor_reader_thread, NULL, sensor_reader, NULL);
-    pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
+    // inicializar internal_queue
+    /* shared_memory->internal_queue[config.queue_sz][BUFFER_SIZE];
 
-    int n = shared_memory->n_workers;
+    for (int i = 0; i < config.queue_sz; i++) {
+        strcpy(internal_queue[i], "");
+    } */
+
+
+    int n = config.n_workers;
     // inicializar worker
     for (int i = 0; i < n; i++) {
         int worker_forks;
@@ -539,14 +610,20 @@ void system_manager(char* config_file) {
         exit(1);
     }
 
+    // criar threads
+    pthread_create(&console_reader_thread, NULL, console_reader, NULL);
+    pthread_create(&sensor_reader_thread, NULL, sensor_reader, NULL);
+    pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
+
+    // terminar as threads
+    pthread_join(console_reader_thread, NULL);
+    pthread_join(sensor_reader_thread, NULL);
+    pthread_join(dispatcher_thread, NULL);
+
     for (int i = 0; i < n; i++) {
         wait(NULL);
     }
 
     wait(NULL);
 
-    // terminar as threads
-    pthread_join(console_reader_thread, NULL);
-    pthread_join(sensor_reader_thread, NULL);
-    pthread_join(dispatcher_thread, NULL);
 }
