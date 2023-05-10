@@ -53,8 +53,9 @@ typedef struct {
     // message_t* internal_queue;
 } shm;
 
-typedef struct {
-    char msg[BUFFER_SIZE];
+// Informacao sobre as mensagens recebidas
+typedef struct node {
+    char* msg;
     int priority;
     struct node* next;
 } node;
@@ -65,6 +66,7 @@ sem_t* sem_log;
 sem_t* sem_shm;
 config_data config;
 int terminate_threads;
+node* root;
 
 pthread_t console_reader_thread;
 pthread_t sensor_reader_thread;
@@ -83,13 +85,10 @@ pid_t pid_sensor;
 pid_t pid_system_manager;
 
 // Mutexes
-pthread_mutex_t mutex_queue;
+pthread_mutex_t mutex_internal_queue;
 
 // Cond vars
-pthread_cond_t cond_queue;
-
-// Queue
-node* queue;
+pthread_cond_t cond_internal_queue;
 
 // Funcoes
 void init();

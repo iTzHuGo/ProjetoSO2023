@@ -8,20 +8,20 @@
     * meter as variaveis de condicao
     * no dispatcher ele faz o signal
     * nos readers ele faz o cond wait pelo signal do dispatcher
-    * 
+    *
     * criar a internal queue dentro do system manager como diz no enunciado
-    * 
+    *
     * as mensagens enviadas pelo sensor tem menor prioridade que as mensagens enviadas pelo console reader
     * enviando primeiro as mensagens do console reader e depois as do sensor para os processos worker
-    * 
+    *
     * se a fila estiver cheia, descarta a mensagem do sensor
     * se a fila estiver cheia, da lock no mutex e espera que a fila fique vazia para meter a cena do console reader
-    * 
+    *
     * os workers  e o dispatcher comunicam com unnamed pipes
-    * quando uma entrada é enviada para um worker, essa entrada é removida da lista e o worker passa a estar 'busy' para que o dispatcher nao lhe volte a enviar uma tarefa ate ele acabar a que recebeu antes 
-    * 
+    * quando uma entrada é enviada para um worker, essa entrada é removida da lista e o worker passa a estar 'busy' para que o dispatcher nao lhe volte a enviar uma tarefa ate ele acabar a que recebeu antes
+    *
     * quando um worker termina de processar o pedido, deve colocar o seu estado como 'free'
-    * 
+    *
     * ha 2 tipos de mensagens, as que sao enviadas pelo user console e as que sao enviadas peloo sensor
 */
 
@@ -40,23 +40,34 @@ void init() {
     sem_unlink("SEM_LOG");
     sem_log = sem_open("SEM_LOG", O_CREAT | O_EXCL, 0700, 1);
 
-#if DEBUG
-    if (sem_log == SEM_FAILED)
+    if (sem_log == SEM_FAILED) {
         write_log("[DEBUG] OPENING SEMAPHORE FOR LOG FAILED");
-    else
-        write_log("[DEBUG] SEMAPHORE FOR LOG CREATED");
+        terminate();
+    }
+#if DEBUG
+    write_log("[DEBUG] SEMAPHORE FOR LOG CREATED");
 #endif
 
     // inicializacao do semaforo para a memoria partilhada
     sem_unlink("SEM_SHM");
     sem_shm = sem_open("SEM_SHM", O_CREAT | O_EXCL, 0700, 1);
 
+    if (sem_shm == SEM_FAILED) {
+        write_log("OPENING SEMAPHORE FOR SHARED MEMORY FAILED");
+        terminate();
+    }
 #if DEBUG
-    if (sem_shm == SEM_FAILED)
-        write_log("[DEBUG] OPENING SEMAPHORE FOR SHARED MEMORY FAILED");
-    else
-        write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
+    write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
+    
+    // inicializacao a raiz da internal queue
+    //root = NULL;
+
+    // inicializacao dos mutexes
+    mutex_internal_queue = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+
+    // inicializacao da variavel de condicao
+    cond_internal_queue = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
 
     // inicializacao sensor pipe
     if ((mkfifo(SENSOR_PIPE, O_CREAT | O_EXCL | 0600) < 0) && (errno != EEXIST)) {
@@ -120,8 +131,6 @@ void terminate() {
     // terminar processos
     wait(NULL);
 
-
-
     // terminar semaforo do log
     sem_close(sem_log);
     sem_unlink("SEM_LOG");
@@ -129,6 +138,8 @@ void terminate() {
     // terminar semaforo da memoria partilhada
     sem_close(sem_shm);
     sem_unlink("SEM_SHM");
+
+    pthread_mutex_destroy(&mutex_internal_queue);
 
     // terminar memoria partilhada
     shmdt(shared_memory);
@@ -483,6 +494,64 @@ void read_config(char* config_file) {
     free(text);
 }
 
+// cria um novo no na internal queue
+node* create_new_node(char* msg, int priority) {
+    node* temp = (node*) malloc(sizeof(node));
+    temp->msg = (char*) malloc((strlen(msg) + 1) * sizeof(char));
+    strcpy(temp->msg, msg);
+    temp->priority = priority;
+    temp->next = NULL;
+
+    return temp;
+}
+
+// insere um novo no na internal queue
+void push(node** root, char* msg, int priority) {
+    node* start = (*root);
+    node* temp = create_new_node(msg, priority);
+
+    printf("PUSH: %s\n", msg);
+
+    if ((*root)->priority > priority) {
+        temp->next = *root;
+        (*root) = temp;
+    }
+    else {
+        while (start->next != NULL && start->next->priority < priority) {
+            start = start->next;
+        }
+
+        temp->next = start->next;
+        start->next = temp;
+    }
+}
+
+// remove um no da internal queue
+void pop(node** root) {
+    node* temp = *root;
+    (*root) = (*root)->next;
+    free(temp->msg);
+    free(temp);
+}
+
+// verifica se a internal queue esta vazia
+int is_empty(node** root) {
+    return (*root) == NULL;
+}
+
+// retorna o tamanho da internal queue
+int size(node* root) {
+    int count = 0;
+    node* aux = root;
+
+    while (aux != NULL) {
+        count++;
+        aux = aux->next;
+    }
+
+    return count;
+}
+
 // thread console reader
 void* console_reader() {
     if (getppid() == getpid()) {
@@ -499,14 +568,22 @@ void* console_reader() {
         received_length = read(fd_console_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
         printf("RECEIVED: %s\n", received);
-        // encontrar a primeira posicao vazia
-        /* for (int i = 0; i < config.queue_sz; i++) {
-            if (strcmp(internal_queue[i], "") == 0) {
-                // copiar para a posicao vazia
-                strcpy(internal_queue[i], received);
-                break;
+        pthread_mutex_lock(&mutex_internal_queue);
+
+        if (size(root) > config.queue_sz) {  // TODO verificar se esta correto -> congif.queue_sz ou shared_memory->queue_sz??????????????
+            printf("QUEUE FULL - bloqueada\n");
+            // thread bloqueada ate que a queue nao esteja cheia
+            pthread_cond_wait(&cond_internal_queue, &mutex_internal_queue);
+        } else {
+            if (!is_empty(&root)) {
+                push(&root, received, 2);
+            } else {
+                root = create_new_node(received, 2);
+                push(&root, received, 2);
             }
-        } */
+        }
+
+        pthread_mutex_unlock(&mutex_internal_queue);
     }
 
     pthread_exit(NULL);
@@ -529,18 +606,30 @@ void* sensor_reader() {
         received_length = read(fd_sensor_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
         printf("SENSOR: %s\n", received);
-        // encontrar a primeira posicao vazia
-        /* for (int i = 0; i < config.queue_sz; i++) {
-            if (strcmp(internal_queue[i], "") == 0) {
-                // copiar para a posicao vazia
-                strcpy(internal_queue[i], received);
-                break;
+        pthread_mutex_lock(&mutex_internal_queue);
+
+        if (size(root) > config.queue_sz) {  // TODO verificar se esta correto -> congif.queue_sz ou shared_memory->queue_sz??????????????
+            char text[BUFFER_SIZE];
+            sprintf(text, "ORDER %s DELETEDE", received);  // TODO verificar frase
+            write_log(text);
+        } else {
+            if (!is_empty(&root)) {
+                push(&root, received, 1);
+            } else {
+                root = create_new_node(received, 1);
+                push(&root, received, 1);
             }
-        } */
+        }
+
+        pthread_mutex_unlock(&mutex_internal_queue);
     }
 
     pthread_exit(NULL);
     return NULL;
+}
+
+char* peek(node** root) {
+    return (*root)->msg;
 }
 
 // thread dispatcher
@@ -550,7 +639,19 @@ void* dispatcher() {
         exit(1);
     }
     write_log("THREAD DISPATCHER CREATED");
-    // faz coisas de dispatcher
+
+    pthread_mutex_lock(&mutex_internal_queue);
+
+    while (!is_empty(&root)) {
+        // só para verificar
+        printf("POP: %s\n", peek(&root));
+        pop(&root);
+        // Depois de reteriar uma mensagem da internal queue desbloqueia o console reader
+        pthread_cond_signal(&cond_internal_queue);
+    }
+
+    pthread_mutex_unlock(&mutex_internal_queue);
+
     pthread_exit(NULL);
     return NULL;
 }
@@ -571,14 +672,6 @@ void system_manager(char* config_file) {
     read_config(config_file);
 
     write_log("CONFIG FILE READ");
-
-    // inicializar internal_queue
-    /* shared_memory->internal_queue[config.queue_sz][BUFFER_SIZE];
-
-    for (int i = 0; i < config.queue_sz; i++) {
-        strcpy(internal_queue[i], "");
-    } */
-
 
     int n = config.n_workers;
     // inicializar worker
