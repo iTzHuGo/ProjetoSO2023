@@ -59,15 +59,15 @@ void init() {
 #if DEBUG
     write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
-    
+
     // inicializacao a raiz da internal queue
     //root = NULL;
 
     // inicializacao dos mutexes
-    mutex_internal_queue = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+    mutex_internal_queue = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 
     // inicializacao da variavel de condicao
-    cond_internal_queue = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
+    cond_internal_queue = (pthread_cond_t) PTHREAD_COND_INITIALIZER;
 
     // inicializacao sensor pipe
     if ((mkfifo(SENSOR_PIPE, O_CREAT | O_EXCL | 0600) < 0) && (errno != EEXIST)) {
@@ -162,6 +162,7 @@ void terminate() {
 void write_log(char* msg) {
     char* text = NULL;
     char* current_time = NULL;
+    char* hour = NULL;
     time_t t;
     time(&t);
 
@@ -171,14 +172,14 @@ void write_log(char* msg) {
     strtok(current_time, "\n");
 
     // obter a hora atual no formato "HH:MM:SS"
-    char* hour = strtok(current_time, " ");
+    hour = strtok(current_time, " ");
 
     for (int i = 0; i < 3; i++) {
         hour = strtok(NULL, " ");
     }
 
     // escrever no ficheiro log
-    text = (char*) malloc((strlen(hour) + strlen(msg)) * sizeof(char) + 1);
+    text = (char*) malloc((strlen(hour) + strlen(msg)) * sizeof(char) + 3);
     sprintf(text, "%s %s", hour, msg);
     sem_wait(sem_log);
     fprintf(log_file, "%s\n", text);
@@ -349,7 +350,7 @@ void sensor(char* id, int interval, char* key, int min, int max) {
     close(fd_named_pipe);
 }
 
-void worker() {
+void worker(int id) {
 #if DEBUG
     char* text = NULL;
     int pid = getpid();
@@ -358,7 +359,62 @@ void worker() {
     write_log(text);
     free(text);
 #endif
-    // faz coisas de worker
+    char* textx = (char*) malloc((strlen("WORKER  READY") + sizeof(id)) * sizeof(char) + 1);
+    sprintf(textx, "WORKER %d READY", id);
+    write_log(textx);
+    free(textx);
+
+    char buffer[BUFFER_SIZE];
+
+    // inicializar semaforo apenas para este worker
+    if (sem_init(&sems_worker[id], 0, 1) < 0) {
+        printf("ERROR CREATING SEMAPHORE");
+        terminate();
+    }
+    printf("SEM %d CREATED\n", id);
+
+    while (1) {
+        // read [0] || write [1]
+        if (read(unnamed_pipes[id][0], buffer, BUFFER_SIZE) < 0) {
+            printf("ERROR READING FROM PIPE");
+            terminate();
+        }
+
+        // worker busy
+        shared_memory->workers_list[id] = 1;
+        sem_wait(&sems_worker[id]);
+
+
+#ifdef DEBUG
+        printf("[DEBUG] WORKER %d BUSY\n", id);
+#endif
+
+        if (strcmp(buffer, "stats") == 0) {
+            printf("WORKER: Stats\n");
+        }
+
+
+        // worker ready
+        sem_post(&sems_worker[id]);
+        shared_memory->workers_list[id] = 0;
+#ifdef DEBUG
+        printf("[DEBUG] WORKER %d READY\n", id);
+#endif
+
+    }
+
+    // fecha o semaforo
+    sem_destroy(&sems_worker[id]);
+    printf("SEM %d DESTROYED\n", id);
+
+    // fecha a ligacao a shm
+    if (shmdt(shared) == -1) {
+        printf("ERROR CLOSING SHARED MEMORY");
+        terminate();
+    }
+
+
+
 }
 
 
@@ -574,12 +630,14 @@ void* console_reader() {
             printf("QUEUE FULL - bloqueada\n");
             // thread bloqueada ate que a queue nao esteja cheia
             pthread_cond_wait(&cond_internal_queue, &mutex_internal_queue);
-        } else {
+        }
+        else {
             if (!is_empty(&root)) {
                 push(&root, received, 2);
-            } else {
+            }
+            else {
                 root = create_new_node(received, 2);
-                push(&root, received, 2);
+                //push(&root, received, 2);
             }
         }
 
@@ -608,16 +666,18 @@ void* sensor_reader() {
         printf("SENSOR: %s\n", received);
         pthread_mutex_lock(&mutex_internal_queue);
 
-        if (size(root) > config.queue_sz) {  // TODO verificar se esta correto -> congif.queue_sz ou shared_memory->queue_sz??????????????
+        if (size(root) > config.queue_sz) {
             char text[BUFFER_SIZE];
-            sprintf(text, "ORDER %s DELETEDE", received);  // TODO verificar frase
+            sprintf(text, "ORDER %s DELETED", received);  // TODO verificar frase
             write_log(text);
-        } else {
+        }
+        else {
             if (!is_empty(&root)) {
                 push(&root, received, 1);
-            } else {
+            }
+            else {
                 root = create_new_node(received, 1);
-                push(&root, received, 1);
+                //push(&root, received, 1);
             }
         }
 
@@ -640,18 +700,43 @@ void* dispatcher() {
     }
     write_log("THREAD DISPATCHER CREATED");
 
-    pthread_mutex_lock(&mutex_internal_queue);
+    int* worker_sem_val = NULL;
 
-    while (!is_empty(&root)) {
-        // só para verificar
-        printf("POP: %s\n", peek(&root));
-        pop(&root);
-        // Depois de reteriar uma mensagem da internal queue desbloqueia o console reader
-        pthread_cond_signal(&cond_internal_queue);
+    while (!terminate_threads) {
+        pthread_mutex_lock(&mutex_internal_queue);
+
+        while (!is_empty(&root)) {
+            // procurar um worker livre e escrever no pipe dele
+            for (int i = 0; i < config.n_workers; i++) {
+                /* if (sem_getvalue(&sems_worker[i], worker_sem_val) == -1) {
+                    write_log("ERROR GETTING SEM VALUE");
+                    terminate();
+                } */
+
+                if (shared_memory->workers_list[i] == 1) {
+                    write_log("WORKER OCUPADO");
+                }
+                else {
+                    // if (worker_sem_val == 1) {
+                        // escrever no pipe do worker
+                    if (write(unnamed_pipes[i][1], peek(&root), strlen(peek(&root)) + 1) == -1) {
+                        write_log("ERROR WRITING TO WORKER PIPE");
+                        terminate();
+                    }
+                    break;
+                    // }
+                }
+            }
+            // só para verificar
+            printf("POP: %s\n", peek(&root));
+            pop(&root);
+            // Depois de reteriar uma mensagem da internal queue desbloqueia o console reader
+            pthread_cond_signal(&cond_internal_queue);
+        }
+
+        pthread_mutex_unlock(&mutex_internal_queue);
     }
-
-    pthread_mutex_unlock(&mutex_internal_queue);
-
+    printf("DISPATCHER FINISHED\n");
     pthread_exit(NULL);
     return NULL;
 }
@@ -673,16 +758,31 @@ void system_manager(char* config_file) {
 
     write_log("CONFIG FILE READ");
 
-    int n = config.n_workers;
+    // alocar memoria para os unnamed pipes
+    unnamed_pipes = malloc(config.n_workers * sizeof(int*));
+
+    // alocar memoria para os unnamed semaphores dos workers
+    sems_worker = malloc(config.n_workers * sizeof(sem_t));
+
+    shared_memory->workers_list = (int*) malloc(config.n_workers * sizeof(int));
+
+
     // inicializar worker
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < config.n_workers; i++) {
+        // inicializar a lista de workers
+        // 0 -> livre; 1 -> ocupado 
+        shared_memory->workers_list[i] = 0;
+
+        if (pipe(unnamed_pipes[i]) == -1) {
+            write_log("ERROR CREATING PIPE");
+            exit(1);
+        }
+        //print do workers list
+        printf("WORKERss %d: %d\n", i, shared_memory->workers_list[i]);
+        printf("teste sys: %d\n", shared_memory->n_sensors);
         int worker_forks;
         if ((worker_forks = fork()) == 0) {
-            char* text = (char*) malloc((strlen("WORKER  READY") + sizeof(i)) * sizeof(char) + 1);
-            sprintf(text, "WORKER %d READY", i);
-            write_log(text);
-            free(text);
-            worker();
+            worker(i);
             exit(0);
         }
         else if (worker_forks == -1) {
@@ -692,16 +792,16 @@ void system_manager(char* config_file) {
     }
 
     // inicializar alerts_watcher
-    int alerts_watcher_fork;
-    if ((alerts_watcher_fork = fork()) == 0) {
-        write_log("PROCESS ALERTS_WATCHER CREATED");
-        alerts_watcher();
-        exit(0);
-    }
-    else if (alerts_watcher_fork == -1) {
-        write_log("ERROR CREATING ALERTS WATCHER");
-        exit(1);
-    }
+    // int alerts_watcher_fork;
+    // if ((alerts_watcher_fork = fork()) == 0) {
+    //     write_log("PROCESS ALERTS_WATCHER CREATED");
+    //     alerts_watcher();
+    //     exit(0);
+    // }
+    // else if (alerts_watcher_fork == -1) {
+    //     write_log("ERROR CREATING ALERTS WATCHER");
+    //     exit(1);
+    // }
 
     // criar threads
     pthread_create(&console_reader_thread, NULL, console_reader, NULL);
@@ -713,10 +813,11 @@ void system_manager(char* config_file) {
     pthread_join(sensor_reader_thread, NULL);
     pthread_join(dispatcher_thread, NULL);
 
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < config.n_workers; i++) {
         wait(NULL);
     }
 
-    wait(NULL);
+    free(shared_memory->workers_list);
+    // wait(NULL);
 
 }

@@ -3,7 +3,7 @@
 
 // Defines
 #define DEBUG 0
-#define BUFFER_SIZE 512
+#define BUFFER_SIZE 1024
 #define LOG_FILE "log.txt"
 #define SENSOR_PIPE "SENSOR_PIPE"
 #define CONSOLE_PIPE "CONSOLE_PIPE"
@@ -48,9 +48,7 @@ typedef struct {
 // Informacao sobre a shared memory
 typedef struct {
     sensor_data* sensors;
-    // char internal_queue[][];
-
-    // message_t* internal_queue;
+    int* workers_list;
 } shm;
 
 // Informacao sobre as mensagens recebidas
@@ -64,6 +62,7 @@ typedef struct node {
 FILE* log_file;
 sem_t* sem_log;
 sem_t* sem_shm;
+sem_t* sems_worker;
 config_data config;
 int terminate_threads;
 node* root;
@@ -74,6 +73,7 @@ pthread_t dispatcher_thread;
 
 int fd_console_pipe;
 int fd_sensor_pipe;
+int(*unnamed_pipes)[2];
 
 // Shared memory
 int shmid;
