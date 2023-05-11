@@ -141,6 +141,8 @@ void terminate() {
 
     pthread_mutex_destroy(&mutex_internal_queue);
 
+    free(shared_memory->sensors);
+
     // terminar memoria partilhada
     shmdt(shared_memory);
     shmctl(shmid, IPC_RMID, NULL);
@@ -364,6 +366,11 @@ void worker(int id) {
     write_log(textx);
     free(textx);
 
+    if ((shared_memory = shmat(shmid, NULL, 0)) < 0) {
+        printf("ERROR ATTACHING SHARED MEMORY");
+        terminate();
+    }
+
     char buffer[BUFFER_SIZE];
 
     // inicializar semaforo apenas para este worker
@@ -379,9 +386,10 @@ void worker(int id) {
             printf("ERROR READING FROM PIPE");
             terminate();
         }
-
+        sem_wait(sem_shm);
         // worker busy
         shared_memory->workers_list[id] = 1;
+        sem_post(sem_shm);
         sem_wait(&sems_worker[id]);
 
 
@@ -389,14 +397,90 @@ void worker(int id) {
         printf("[DEBUG] WORKER %d BUSY\n", id);
 #endif
 
+        // receber dados consol
         if (strcmp(buffer, "stats") == 0) {
             printf("WORKER: Stats\n");
         }
+        else if (strcmp(buffer, "reset") == 0) {
+            printf("WORKER: Reset\n");
+        }
+        else if (strcmp(buffer, "sensors") == 0) {
+            printf("WORKER: Sensors\n");
+        }
+        else if (strcmp(buffer, "add_alert") == 0) {
+            printf("WORKER: Add_alert\n");
+        }
+        else if (strcmp(buffer, "remove_alert") == 0) {
+            printf("WORKER: Remove_alert\n");
+        }
+        else if (strcmp(buffer, "list_alerts") == 0) {
+            printf("WORKER: List_alerts\n");
+        }
+        // receber dados sensor
+        else {
+            char* token = strtok(buffer, "#");
+            char* id = token;
+
+            token = strtok(NULL, "#");
+            char* key = token;
+
+            token = strtok(NULL, "#");
+            char* value = token;
+            // verificar se a key existe na lista de keys
+            int found = 0;
+            sem_wait(sem_shm);
+            for (int i = 0; i < config.max_keys; i++) {
+                if (strcmp(shared_memory->sensors[i].key, key) == 0) {
+                    found = 1;
+                    // atualizar os valores
+                    shared_memory->sensors[i].last = atoi(value);
+
+                    if (value < shared_memory->sensors[i].min) {
+                        shared_memory->sensors[i].min = atoi(value);
+                    }
+
+                    if (value > shared_memory->sensors[i].max) {
+                        shared_memory->sensors[i].max = atoi(value);
+                    }
+
+                    shared_memory->sensors[i].mean = (shared_memory->sensors[i].mean * shared_memory->sensors[i].n + atoi(value)) / (shared_memory->sensors[i].n + 1);
+
+                    shared_memory->sensors[i].n++;
+
+                    break;
+                }
+            }
+
+            if (found == 0) {
+                // se nao existir
+                // procurar por um espaco vazio e adicionar a key
+                for (int i = 0; i < config.max_keys; i++) {
+                    if (strcmp(shared_memory->sensors[i].key, "") == 0) {
+                        printf("FOUND EMPTY SPACE\n");
+                        strcpy(shared_memory->sensors[i].key, key);
+                        shared_memory->sensors[i].last = atoi(value);
+                        printf("LASTya boy: %d\n", shared_memory->sensors[i].last);
+                        shared_memory->sensors[i].min = atoi(value);
+                        shared_memory->sensors[i].max = atoi(value);
+                        shared_memory->sensors[i].mean = atoi(value);
+                        shared_memory->sensors[i].n = 1;
+                        break;
+                    }
+                }
+            }
+
+            sem_post(sem_shm);
+            printf("WORKER: Sensor\n");
+        }
+
+
 
 
         // worker ready
         sem_post(&sems_worker[id]);
+        sem_wait(sem_shm);
         shared_memory->workers_list[id] = 0;
+        sem_post(sem_shm);
 #ifdef DEBUG
         printf("[DEBUG] WORKER %d READY\n", id);
 #endif
@@ -406,15 +490,6 @@ void worker(int id) {
     // fecha o semaforo
     sem_destroy(&sems_worker[id]);
     printf("SEM %d DESTROYED\n", id);
-
-    // fecha a ligacao a shm
-    if (shmdt(shared) == -1) {
-        printf("ERROR CLOSING SHARED MEMORY");
-        terminate();
-    }
-
-
-
 }
 
 
@@ -518,15 +593,16 @@ void read_config(char* config_file) {
             config.max_sensors = atoi(token);
 
             // TODO problema para depois
-            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * config.max_sensors);
+            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * config.max_keys);
 
             // inicializar os sensores
-            for (int j = 0; j < config.max_sensors; j++) {
-                strcpy(shared_memory->sensors[j].id, "");
+            for (int j = 0; j < config.max_keys; j++) {
                 strcpy(shared_memory->sensors[j].key, "");
-                shared_memory->sensors[j].interval = 0;
+                shared_memory->sensors[j].last = 0;
                 shared_memory->sensors[j].min = 0;
                 shared_memory->sensors[j].max = 0;
+                shared_memory->sensors[j].mean = 0;
+                shared_memory->sensors[j].n = 0;
             }
         }
         else if (i == 3) {
@@ -706,6 +782,12 @@ void* dispatcher() {
         pthread_mutex_lock(&mutex_internal_queue);
 
         while (!is_empty(&root)) {
+            // print shared memory sensors
+            sem_wait(sem_shm);
+            for (int i = 0; i < config.max_keys; i++) {
+                printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->sensors[i].last);
+            }
+            sem_post(sem_shm);
             // procurar um worker livre e escrever no pipe dele
             for (int i = 0; i < config.n_workers; i++) {
                 /* if (sem_getvalue(&sems_worker[i], worker_sem_val) == -1) {
@@ -779,7 +861,6 @@ void system_manager(char* config_file) {
         }
         //print do workers list
         printf("WORKERss %d: %d\n", i, shared_memory->workers_list[i]);
-        printf("teste sys: %d\n", shared_memory->n_sensors);
         int worker_forks;
         if ((worker_forks = fork()) == 0) {
             worker(i);
