@@ -141,8 +141,6 @@ void terminate() {
 
     pthread_mutex_destroy(&mutex_internal_queue);
 
-    free(shared_memory->sensors);
-
     // terminar memoria partilhada
     shmdt(shared_memory);
     shmctl(shmid, IPC_RMID, NULL);
@@ -366,12 +364,9 @@ void worker(int id) {
     write_log(textx);
     free(textx);
 
-    if ((shared_memory = shmat(shmid, NULL, 0)) < 0) {
-        printf("ERROR ATTACHING SHARED MEMORY");
-        terminate();
-    }
-
     char buffer[BUFFER_SIZE];
+
+
 
     // inicializar semaforo apenas para este worker
     if (sem_init(&sems_worker[id], 0, 1) < 0) {
@@ -419,58 +414,100 @@ void worker(int id) {
         // receber dados sensor
         else {
             char* token = strtok(buffer, "#");
-            char* id = token;
+            char* name = token;
 
-            token = strtok(NULL, "#");
-            char* key = token;
+            int space = 0;
 
-            token = strtok(NULL, "#");
-            char* value = token;
-            // verificar se a key existe na lista de keys
-            int found = 0;
             sem_wait(sem_shm);
-            for (int i = 0; i < config.max_keys; i++) {
-                if (strcmp(shared_memory->sensors[i].key, key) == 0) {
-                    found = 1;
-                    // atualizar os valores
-                    shared_memory->sensors[i].last = atoi(value);
-
-                    if (value < shared_memory->sensors[i].min) {
-                        shared_memory->sensors[i].min = atoi(value);
-                    }
-
-                    if (value > shared_memory->sensors[i].max) {
-                        shared_memory->sensors[i].max = atoi(value);
-                    }
-
-                    shared_memory->sensors[i].mean = (shared_memory->sensors[i].mean * shared_memory->sensors[i].n + atoi(value)) / (shared_memory->sensors[i].n + 1);
-
-                    shared_memory->sensors[i].n++;
-
+            int found_sensor = 0;
+            for (int i = 0; i < config.max_sensors; i++) {
+                if (strcmp(shared_memory->sensors[i].id, name) == 0) {
+                    found_sensor = 1;
+                    space = 1;
                     break;
                 }
             }
+            sem_post(sem_shm);
 
-            if (found == 0) {
-                // se nao existir
-                // procurar por um espaco vazio e adicionar a key
-                for (int i = 0; i < config.max_keys; i++) {
-                    if (strcmp(shared_memory->sensors[i].key, "") == 0) {
-                        printf("FOUND EMPTY SPACE\n");
-                        strcpy(shared_memory->sensors[i].key, key);
-                        shared_memory->sensors[i].last = atoi(value);
-                        printf("LASTya boy: %d\n", shared_memory->sensors[i].last);
-                        shared_memory->sensors[i].min = atoi(value);
-                        shared_memory->sensors[i].max = atoi(value);
-                        shared_memory->sensors[i].mean = atoi(value);
-                        shared_memory->sensors[i].n = 1;
+            sem_wait(sem_shm);
+            if (found_sensor == 0) {
+                for (int i = 0; i < config.max_sensors; i++) {
+                    if (strcmp(shared_memory->sensors[i].id, "") == 0) {
+                        space = 1;
+                        strcpy(shared_memory->sensors[i].id, name);
                         break;
+                    }
+                }
+            }
+            sem_post(sem_shm);
+
+            if (space == 0) {
+                write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED");
+            }
+            else {
+
+
+                token = strtok(NULL, "#");
+                char* key = token;
+
+
+
+                token = strtok(NULL, "#");
+                char* value = token;
+                // verificar se a key existe na lista de keys
+                int found = 0;
+                sem_wait(sem_shm);
+                for (int i = 0; i < config.max_keys; i++) {
+                    if (strcmp(shared_memory->keys[i].name, key) == 0) {
+                        found = 1;
+                        // atualizar os valores
+                        shared_memory->keys[i].last = atoi(value);
+
+                        if (value < shared_memory->keys[i].min) {
+                            shared_memory->keys[i].min = atoi(value);
+                        }
+
+                        if (value > shared_memory->keys[i].max) {
+                            shared_memory->keys[i].max = atoi(value);
+                        }
+
+                        shared_memory->keys[i].mean = (shared_memory->keys[i].mean * shared_memory->keys[i].changes + atoi(value)) / (shared_memory->keys[i].changes + 1);
+
+                        shared_memory->keys[i].changes++;
+
+                        char* send = (char*) malloc((strlen("WORKER:  DATA PROCESSING COMPLETED") + sizeof(id) + sizeof(key)) * sizeof(char) + 1);
+                        sprintf(send, "WORKER%d: %s DATA PROCESSING COMPLETED", id, key);
+                        write_log(send);
+                        free(send);
+
+                        break;
+                    }
+                }
+
+                if (found == 0) {
+                    int key_flag = 0;
+                    // se nao existir
+                    // procurar por um espaco vazio e adicionar a key
+                    for (int i = 0; i < config.max_keys; i++) {
+                        if (strcmp(shared_memory->keys[i].name, "") == 0) {
+                            key_flag = 1;
+                            strcpy(shared_memory->keys[i].name, key);
+                            shared_memory->keys[i].last = atoi(value);
+                            shared_memory->keys[i].min = atoi(value);
+                            shared_memory->keys[i].max = atoi(value);
+                            shared_memory->keys[i].mean = atoi(value);
+                            shared_memory->keys[i].changes = 1;
+                            break;
+                        }
+                    }
+
+                    if (key_flag == 0) {
+                        write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
                     }
                 }
             }
 
             sem_post(sem_shm);
-            printf("WORKER: Sensor\n");
         }
 
 
@@ -592,17 +629,23 @@ void read_config(char* config_file) {
             // guardar o numero maximo de sensores
             config.max_sensors = atoi(token);
 
-            // TODO problema para depois
-            shared_memory->sensors = (sensor_data*) malloc(sizeof(sensor_data) * config.max_keys);
+            shared_memory->sensors = (sensor_data*) (((void*) shared_memory) + sizeof(shm));
 
-            // inicializar os sensores
+            for (int j = 0; j < config.max_sensors; j++) {
+                strcpy(shared_memory->sensors[j].id, "");
+            }
+
+            shared_memory->keys = (key_data*) (((void*) shared_memory->sensors) + sizeof(sensor_data) * config.max_sensors);
+
+
+            // inicializar a lista de chaves
             for (int j = 0; j < config.max_keys; j++) {
-                strcpy(shared_memory->sensors[j].key, "");
-                shared_memory->sensors[j].last = 0;
-                shared_memory->sensors[j].min = 0;
-                shared_memory->sensors[j].max = 0;
-                shared_memory->sensors[j].mean = 0;
-                shared_memory->sensors[j].n = 0;
+                strcpy(shared_memory->keys[j].name, "");
+                shared_memory->keys[j].last = 0;
+                shared_memory->keys[j].min = 0;
+                shared_memory->keys[j].max = 0;
+                shared_memory->keys[j].mean = 0;
+                shared_memory->keys[j].changes = 0;
             }
         }
         else if (i == 3) {
@@ -785,7 +828,7 @@ void* dispatcher() {
             // print shared memory sensors
             sem_wait(sem_shm);
             for (int i = 0; i < config.max_keys; i++) {
-                printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->sensors[i].last);
+                printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->keys[i].last);
             }
             sem_post(sem_shm);
             // procurar um worker livre e escrever no pipe dele
@@ -830,7 +873,6 @@ void system_manager(char* config_file) {
         exit(1);
     }
 
-
     init();
 
     write_log("HOME_IOT SIMULATOR STARTING");
@@ -860,7 +902,6 @@ void system_manager(char* config_file) {
             exit(1);
         }
         //print do workers list
-        printf("WORKERss %d: %d\n", i, shared_memory->workers_list[i]);
         int worker_forks;
         if ((worker_forks = fork()) == 0) {
             worker(i);
@@ -871,7 +912,6 @@ void system_manager(char* config_file) {
             exit(1);
         }
     }
-
     // inicializar alerts_watcher
     // int alerts_watcher_fork;
     // if ((alerts_watcher_fork = fork()) == 0) {

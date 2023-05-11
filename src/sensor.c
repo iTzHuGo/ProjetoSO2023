@@ -1,9 +1,9 @@
 // Ana Rita Martins Oliveira 2020213684
 // Hugo Sobral de Barros 2020234332
 
-#include "functions.h"
+#include "functions.h"  
 
-#define BUFFER_SIZE 512
+#define BUFFER_SIZE 1024
 
 int main(int argc, char* argv[]) {
     // Verifica se o numero de argumentos e valido

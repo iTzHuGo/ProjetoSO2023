@@ -30,13 +30,17 @@
 
 // Informacao sobre os sensores
 typedef struct {
-    char key[33];
+    char id[33];
+} sensor_data;
+
+typedef struct {
+    char name[33];
     int last;
     int min;
     int max;
     double mean;
-    int n;
-} sensor_data;
+    int changes;
+} key_data;
 
 typedef struct {
     int queue_sz;
@@ -49,6 +53,7 @@ typedef struct {
 // Informacao sobre a shared memory
 typedef struct {
     sensor_data* sensors;
+    key_data* keys;
     int* workers_list;
 } shm;
 
