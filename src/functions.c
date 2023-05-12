@@ -91,13 +91,13 @@ void init() {
     }
 
 
-    init_shared_mem();
+    init_shared_mem();   
 }
 
 // inicializa a memoria partilhada
 void init_shared_mem() {
     // inicializacao da memoria partilhada
-    int size = sizeof(shm) + sizeof(sensor_data) + 1;
+    int size = sizeof(shm) + sizeof(sensor_data) + sizeof(key_data) + sizeof(int*) + 1;
     if ((shmid = shmget(IPC_PRIVATE, size, IPC_CREAT | 0777)) == -1) {
         write_log("ERROR CREATING SHARED MEMORY");
         exit(1);
@@ -151,6 +151,9 @@ void terminate() {
 
     close(fd_console_pipe);
     unlink(CONSOLE_PIPE);
+
+    // fechar message queue
+    msgctl(msgq_id, IPC_RMID, NULL);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -223,6 +226,19 @@ void user_console() {
         printf("ERROR OPENING CONSOLE PIPE");
         exit(1);
     }
+    /* // inicializar message queue
+    if ((msgq_id = msgget((int) QUEUE_NAME, IPC_CREAT | 0777)) == -1) {
+        write_log("ERROR CREATING MESSAGE QUEUE");
+        exit(1);
+    } */
+
+    key_t key = ftok("path/to/file", 'A');
+    if((msgq_id = msgget(key, IPC_CREAT|0777)) == -1){
+    	perror("Cannot create message queue");
+		exit(1);
+	} 
+    
+    msgq message;
 
     // apresentacao do menu
     printf("Menu:\n");
@@ -252,6 +268,12 @@ void user_console() {
             else if (strcmp(instruction[0], "stats") == 0) {
                 printf("Stats\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+
+                printf("Key Last Min Max Avg Count\n");
+                // ler a mensagem da message queue
+                msgrcv(msgq_id, &message, sizeof(message), 0, 0);
+                printf("message.mtext:%s \n", mq.mtext);
+                printf("message.mtype:%ld \n", mq.mtype);
             }
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
@@ -366,7 +388,18 @@ void worker(int id) {
 
     char buffer[BUFFER_SIZE];
 
+    /* // inicializar message queue
+    if ((msgq_id = msgget(QUEUE_NAME, IPC_CREAT | 0777)) == -1) {
+        write_log("ERROR CREATING MESSAGE QUEUE");
+        exit(1);
+    } */
+    key_t key = ftok("path/to/file", 'A');
+    if((msgq_id = msgget(key, IPC_CREAT|0777)) == -1){
+    	perror("Cannot create message queue");
+		exit(1);
+	} 
 
+    msgq message;
 
     // inicializar semaforo apenas para este worker
     if (sem_init(&sems_worker[id], 0, 1) < 0) {
@@ -394,6 +427,25 @@ void worker(int id) {
 
         // receber dados consol
         if (strcmp(buffer, "stats") == 0) {
+            mq.mtype = 0;
+
+            char* msg_stats = NULL;
+            msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
+            sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
+            // strcpy(message.mtext, msg_stats);
+            mq.mtext = msg_stats;
+
+            printf("msg_stats: %s\n", msg_stats);
+            printf("message.mtext: %s\n", mq.mtext);
+
+            // Envia para a messenge queue
+            msgsnd(msgq_id, &message, sizeof(message), 0);
+            printf("teste\n");
+
+
+            free(msg_stats);
+
+            // strcpy(message.mtext, );
             printf("WORKER: Stats\n");
         }
         else if (strcmp(buffer, "reset") == 0) {
@@ -463,11 +515,11 @@ void worker(int id) {
                         // atualizar os valores
                         shared_memory->keys[i].last = atoi(value);
 
-                        if (value < shared_memory->keys[i].min) {
+                        if (atoi(value) < shared_memory->keys[i].min) {
                             shared_memory->keys[i].min = atoi(value);
                         }
 
-                        if (value > shared_memory->keys[i].max) {
+                        if (atoi(value) > shared_memory->keys[i].max) {
                             shared_memory->keys[i].max = atoi(value);
                         }
 
@@ -636,7 +688,6 @@ void read_config(char* config_file) {
             }
 
             shared_memory->keys = (key_data*) (((void*) shared_memory->sensors) + sizeof(sensor_data) * config.max_sensors);
-
 
             // inicializar a lista de chaves
             for (int j = 0; j < config.max_keys; j++) {
@@ -888,7 +939,7 @@ void system_manager(char* config_file) {
     // alocar memoria para os unnamed semaphores dos workers
     sems_worker = malloc(config.n_workers * sizeof(sem_t));
 
-    shared_memory->workers_list = (int*) malloc(config.n_workers * sizeof(int));
+    shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
 
 
     // inicializar worker

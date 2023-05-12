@@ -7,8 +7,10 @@
 #define LOG_FILE "log.txt"
 #define SENSOR_PIPE "SENSOR_PIPE"
 #define CONSOLE_PIPE "CONSOLE_PIPE"
+#define QUEUE_NAME "/QUEUE_NAME"
 
 // Includes
+#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +23,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/msg.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <ctype.h>
@@ -64,6 +67,12 @@ typedef struct node {
     struct node* next;
 } node;
 
+// Mensague queue
+typedef struct{
+    long mtype;
+    char* mtext;
+}msgq;
+
 // Variaveis globais
 FILE* log_file;
 sem_t* sem_log;
@@ -95,6 +104,10 @@ pthread_mutex_t mutex_internal_queue;
 
 // Cond vars
 pthread_cond_t cond_internal_queue;
+
+// Message queue
+int msgq_id;
+msgq mq;
 
 // Funcoes
 void init();
