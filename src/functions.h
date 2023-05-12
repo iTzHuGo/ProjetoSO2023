@@ -68,10 +68,10 @@ typedef struct node {
 } node;
 
 // Mensague queue
-typedef struct{
+typedef struct {
     long mtype;
-    char* mtext;
-}msgq;
+    char mtext[100];
+} msgq;
 
 // Variaveis globais
 FILE* log_file;
@@ -106,7 +106,7 @@ pthread_mutex_t mutex_internal_queue;
 pthread_cond_t cond_internal_queue;
 
 // Message queue
-int msgq_id;
+//int msgq_id;
 msgq mq;
 
 // Funcoes

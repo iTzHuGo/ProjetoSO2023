@@ -153,7 +153,7 @@ void terminate() {
     unlink(CONSOLE_PIPE);
 
     // fechar message queue
-    msgctl(msgq_id, IPC_RMID, NULL);
+    //msgctl(msgq_id, IPC_RMID, NULL);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -232,14 +232,6 @@ void user_console() {
         exit(1);
     } */
 
-    key_t key = ftok("path/to/file", 'A');
-    if((msgq_id = msgget(key, IPC_CREAT|0777)) == -1){
-    	perror("Cannot create message queue");
-		exit(1);
-	} 
-    
-    msgq message;
-
     // apresentacao do menu
     printf("Menu:\n");
     printf("\texit\n\tSair do User Console\n\n");
@@ -270,10 +262,24 @@ void user_console() {
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("Key Last Min Max Avg Count\n");
-                // ler a mensagem da message queue
-                msgrcv(msgq_id, &message, sizeof(message), 0, 0);
-                printf("message.mtext:%s \n", mq.mtext);
-                printf("message.mtype:%ld \n", mq.mtype);
+
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = 100; // Defina o mesmo tamanho máximo usado no processo 1
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 1, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("Mensagem recebida: %s\n", message.mtext);
             }
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
@@ -393,13 +399,7 @@ void worker(int id) {
         write_log("ERROR CREATING MESSAGE QUEUE");
         exit(1);
     } */
-    key_t key = ftok("path/to/file", 'A');
-    if((msgq_id = msgget(key, IPC_CREAT|0777)) == -1){
-    	perror("Cannot create message queue");
-		exit(1);
-	} 
 
-    msgq message;
 
     // inicializar semaforo apenas para este worker
     if (sem_init(&sems_worker[id], 0, 1) < 0) {
@@ -427,23 +427,43 @@ void worker(int id) {
 
         // receber dados consol
         if (strcmp(buffer, "stats") == 0) {
-            mq.mtype = 0;
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
 
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 1;
+            // const char* msg = "Hello, world!";
             char* msg_stats = NULL;
             msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
             sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
-            // strcpy(message.mtext, msg_stats);
-            mq.mtext = msg_stats;
+            int max_msg_size = 100; // Defina um tamanho máximo para a mensagem
+            strncpy(message.mtext, msg_stats, max_msg_size);
 
-            printf("msg_stats: %s\n", msg_stats);
-            printf("message.mtext: %s\n", mq.mtext);
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
+            printf("FOI!\n");
+
+            /* char* msg_stats = NULL;
+            msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
+            sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
+            // strcpy(message.mtext, msg_stats);
+            message.mtext = msg_stats;
+
+            printf("msg_stats: %s\n", msg_stats); */
+            // printf("message.mtext: %s\n", message.mtext);
 
             // Envia para a messenge queue
-            msgsnd(msgq_id, &message, sizeof(message), 0);
-            printf("teste\n");
+            // msgsnd(msgq_id, &message, sizeof(message), 0);
+            // printf("teste\n");
 
-
-            free(msg_stats);
+            //free(msg_stats);
 
             // strcpy(message.mtext, );
             printf("WORKER: Stats\n");
