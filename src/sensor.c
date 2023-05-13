@@ -5,6 +5,11 @@
 
 #define BUFFER_SIZE 1024
 
+void sigstp_handler(int signum) {
+    printf("Number of messages sent: \n");
+}
+
+
 int main(int argc, char* argv[]) {
     // Verifica se o numero de argumentos e valido
     if (argc != 6) {
@@ -38,7 +43,7 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-
+    signal(SIGTSTP, sigstp_handler);
 
     sensor(argv[1], atoi(argv[2]), argv[3], atoi(argv[4]), atoi(argv[5]));
 

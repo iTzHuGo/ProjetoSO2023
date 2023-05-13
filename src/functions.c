@@ -68,6 +68,15 @@ void init() {
         write_log("OPENING SEMAPHORE FOR WORKERS FAILED");
         terminate();
     }
+
+    // inicializacao do semaforo para os workers
+    sem_unlink("SEM_ALERTS");
+    sem_alerts = sem_open("SEM_ALERTS", O_CREAT | O_EXCL, 0700, 1);
+
+    if (sem_alerts == SEM_FAILED) {
+        write_log("OPENING SEMAPHORE FOR ALERTS FAILED");
+        terminate();
+    }
 #if DEBUG
     write_log("[DEBUG] SEMAPHORE FOR WORKERS CREATED");
 #endif
@@ -153,6 +162,10 @@ void terminate() {
     // terminar semaforo dos workers
     sem_close(sem_workers);
     sem_unlink("SEM_WORKERS");
+
+    // terminar semaforo dos alerts
+    sem_close(sem_alerts);
+    sem_unlink("SEM_ALERTS");
 
     pthread_mutex_destroy(&mutex_internal_queue);
 
@@ -539,6 +552,7 @@ void worker(int id) {
 
         // receber dados consol
         if (strcmp(buffer, "stats") == 0) {
+            sem_wait(sem_shm);
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -571,9 +585,11 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+            sem_post(sem_shm);
         }
 
         else if (strcmp(buffer, "reset") == 0) {
+            sem_wait(sem_shm);
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -610,9 +626,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            sem_post(sem_shm);
         }
 
         else if (strcmp(buffer, "sensors") == 0) {
+            sem_wait(sem_shm);
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -646,10 +665,13 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+            sem_post(sem_shm);
         }
 
         else if (strcmp(strtok(buffer, " "), "add_alert") == 0) {
             printf("WORKER: Add_alert\n");
+
+            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -688,10 +710,13 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+            sem_post(sem_shm);
         }
 
         else if (strcmp(strtok(buffer, " "), "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
+
+            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -709,17 +734,14 @@ void worker(int id) {
             int find_alert = 0;
             int pos;
 
-            // char* token = strtok(NULL, " ");
-            char* token = strtok(buffer, " ");
-            while (token != NULL) {
-                printf("token = %s\n", token);
-                token = strtok(NULL, " ");
-            }
+            char *qqrcoisa;
 
-            printf("FDSSSSS %s\n", token);
+            qqrcoisa = strtok(NULL, " ");
+
+            printf("QQRCOISA %s\n", qqrcoisa);
 
             for (int i = 0; i < config.max_alerts; i++) {
-                if (strcmp(token, shared_memory->alerts[i].id) == 0) {
+                if (strcmp(qqrcoisa, shared_memory->alerts[i].id) == 0) {
                     printf("AQUII!!!\n");
                     find_alert = 1;
                     pos = i;
@@ -761,10 +783,14 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            sem_post(sem_shm);
         }
 
         else if (strcmp(buffer, "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
+
+            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -800,6 +826,8 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            sem_post(sem_shm);
         }
 
         // receber dados sensor
@@ -898,6 +926,7 @@ void worker(int id) {
                         write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
                     }
                 }
+                sem_post(sem_alerts);
             }
 
             sem_post(sem_shm);
@@ -954,12 +983,11 @@ void alerts_watcher() {
         // se nao for, nao fazer nada
         // se nao encontrar o alerta, nao fazer nada
         // se o alerta ja tiver sido enviado, nao fazer nada
-
+        sem_wait(sem_alerts);
         for (int i = 0; i < config.max_keys; i++) {
             msg[0] = '\0';
             msg_alert[0] = '\0';
-            if (strcmp(shared_memory->keys[i].name, "") != 0 && shared_memory->keys[i].alert == 0) {
-                shared_memory->keys[i].alert = 1;
+            if (strcmp(shared_memory->keys[i].name, "") != 0) {
                 for (int j = 0; j < config.max_alerts; j++) {
                     if (strcmp(shared_memory->alerts[j].key, shared_memory->keys[i].name) == 0) {
                         printf("KEY: %s\n", shared_memory->keys[i].name);
@@ -1370,16 +1398,16 @@ void system_manager(char* config_file) {
     }
 
     // inicializar alerts_watcher
-    // int alerts_watcher_fork;
-    // if ((alerts_watcher_fork = fork()) == 0) {
-    //     write_log("PROCESS ALERTS_WATCHER CREATED");
-    //     alerts_watcher();
-    //     exit(0);
-    // }
-    // else if (alerts_watcher_fork == -1) {
-    //     write_log("ERROR CREATING ALERTS WATCHER");
-    //     exit(1);
-    // }
+    int alerts_watcher_fork;
+    if ((alerts_watcher_fork = fork()) == 0) {
+        write_log("PROCESS ALERTS_WATCHER CREATED");
+        alerts_watcher();
+        exit(0);
+    }
+    else if (alerts_watcher_fork == -1) {
+        write_log("ERROR CREATING ALERTS WATCHER");
+        exit(1);
+    }
 
     // criar threads
     pthread_create(&console_reader_thread, NULL, console_reader, NULL);

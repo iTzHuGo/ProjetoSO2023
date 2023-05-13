@@ -87,6 +87,7 @@ FILE* log_file;
 sem_t* sem_log;
 sem_t* sem_shm;
 sem_t* sem_workers;
+sem_t* sem_alerts;
 config_data config;
 int terminate_threads;
 node* root;
