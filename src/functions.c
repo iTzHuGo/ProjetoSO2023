@@ -258,7 +258,6 @@ void user_console() {
                 break;
             }
             else if (strcmp(instruction[0], "stats") == 0) {
-                printf("Stats\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("Key Last Min Max Avg Count\n");
@@ -272,14 +271,14 @@ void user_console() {
                     exit(EXIT_FAILURE);
                 } 
 
-                int max_msg_size = 100; // Defina o mesmo tamanho máximo usado no processo 1
-
+                int max_msg_size = BUFFER_SIZE;
+                
                 if (msgrcv(msgq_id, &message, max_msg_size, 1, 0) == -1) {
                     printf("Erro ao receber mensagem.\n");
                     exit(EXIT_FAILURE);
                 }
 
-                printf("Mensagem recebida: %s\n", message.mtext);
+                printf("%s\n", message.mtext);
             }
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
@@ -438,11 +437,29 @@ void worker(int id) {
 
             message.mtype = 1;
             // const char* msg = "Hello, world!";
-            char* msg_stats = NULL;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+            char msg_stats[BUFFER_SIZE];
+            msg_stats[0] = '\0';
+            for (int i = 0; i < config.max_keys; i++) {
+                if (strcmp(shared_memory->keys[i].name, "") != 0) {
+                    sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys[i].name, shared_memory->keys[i].last, shared_memory->keys[i].min, shared_memory->keys[i].max, shared_memory->keys[i].mean, shared_memory->keys[i].changes);
+                    strcat(msg, msg_stats);
+                    strcat(msg, "\n");
+                } else {
+                    break;
+                }
+            }
+
+            /* char* msg_stats = NULL;
             msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
             sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
             int max_msg_size = 100; // Defina um tamanho máximo para a mensagem
-            strncpy(message.mtext, msg_stats, max_msg_size);
+            strncpy(message.mtext, msg_stats, max_msg_size); */
+
+            int max_msg_size = BUFFER_SIZE; // Defina um tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
 
             if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
                 printf("Erro ao enviar mensagem.\n");
