@@ -386,8 +386,27 @@ void user_console() {
                 }
                 char msg[BUFFER_SIZE * 2];
                 sprintf(msg, "%s %s", instruction[0], instruction[1]);
+                printf("remover: %s\n", instruction[1]);
+                printf("msg: %s\n", msg);
                 write(fd_named_pipe, msg, strlen(msg) + 1);
-                printf("Alert %s removed successfully!\n\n", instruction[1]);
+                
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = BUFFER_SIZE;
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 5, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("%s\n", message.mtext);
             }
 
             else if (strcmp(instruction[0], "list_alerts") == 0) {
@@ -503,6 +522,8 @@ void worker(int id) {
         printf("[DEBUG] WORKER %d BUSY\n", id);
 #endif
 
+        printf("buffer: %s\n", buffer);
+
         // receber dados consol
         if (strcmp(buffer, "stats") == 0) {
             key_t key = ftok("msgfile", 'A');
@@ -539,10 +560,6 @@ void worker(int id) {
         }
 
         else if (strcmp(buffer, "reset") == 0) {
-            printf("WORKER: Reset\n");
-            // mtype = 2
-            // voltar a fazer o mesmo da incialização, para os sensores e para as chaves
-
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -658,15 +675,79 @@ void worker(int id) {
             }
         }
 
-        else if (strcmp(buffer, "remove_alert") == 0) {
+        else if (strcmp(strtok(buffer, " "), "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
-            // mtype = 5
+
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 5;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+            int find_alert = 0;
+            int pos;
+
+            char* token = strtok(buffer, " ");
+            printf("strtok: %s\n", token);
+            printf("fds\n");
+            char* token2 = strtok(NULL, " ");
+            printf("strtok2: %s\n", token2);
+            for (int i = 0; i < config.max_alerts; i++) {
+                if (strcmp(token2, shared_memory->alerts[i].id) == 0) {
+                    printf("AQUII!!!\n");
+                    find_alert = 1;
+                    pos = i;
+                    strcpy(shared_memory->alerts[i].id, "");
+                    strcpy(shared_memory->alerts[i].key, "");
+                    shared_memory->alerts[i].min = 0;
+                    shared_memory->alerts[i].max = 0;
+                    break;
+                }
+            }
+
+            if (find_alert == 0) {
+                strcat(msg, "ERROR\n");
+            }
+
+            for (int i = pos; i < config.max_alerts; i++) {
+                if (i == config.max_alerts - 1) {
+                    strcpy(shared_memory->alerts[i].id, "");
+                    strcpy(shared_memory->alerts[i].key, "");
+                    shared_memory->alerts[i].min = 0;
+                    shared_memory->alerts[i].max = 0;
+                    break;
+                }
+                else if (strcmp(shared_memory->alerts[i].id, "") == 0 && strcmp(shared_memory->alerts[i+1].id, "") == 0) {
+                    break;
+                }
+                strcpy(shared_memory->alerts[i].id, shared_memory->alerts[i+1].id);
+                strcpy(shared_memory->alerts[i].key, shared_memory->alerts[i+1].key);
+                shared_memory->alerts[i].min = shared_memory->alerts[i+1].min;
+                shared_memory->alerts[i].max = shared_memory->alerts[i+1].max;
+            }
+
+            strcat(msg, "OK\n");
+
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
+
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
         }
 
         else if (strcmp(buffer, "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
             
-           key_t key = ftok("msgfile", 'A');
+            key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
 
