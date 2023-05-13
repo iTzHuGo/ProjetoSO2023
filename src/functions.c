@@ -550,9 +550,22 @@ void worker(int id) {
 
         printf("buffer: %s\n", buffer);
 
+        int aux = 0;
+        char instruction[5][BUFFER_SIZE];
+        instruction[0][0] = '\0';
+        instruction[1][0] = '\0';
+        instruction[2][0] = '\0';
+        instruction[3][0] = '\0';
+        instruction[4][0] = '\0';
+
+        char* token = strtok(buffer, " ");
+        while (token != NULL) {
+            strcpy(instruction[aux++], token);
+            token = strtok(NULL, " ");
+        }
+
         // receber dados consol
-        if (strcmp(buffer, "stats") == 0) {
-            sem_wait(sem_shm);
+        if (strcmp(instruction[0], "stats") == 0) {
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -585,11 +598,9 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-            sem_post(sem_shm);
         }
 
-        else if (strcmp(buffer, "reset") == 0) {
-            sem_wait(sem_shm);
+        else if (strcmp(instruction[0], "reset") == 0) {
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -626,12 +637,9 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-
-            sem_post(sem_shm);
         }
 
-        else if (strcmp(buffer, "sensors") == 0) {
-            sem_wait(sem_shm);
+        else if (strcmp(instruction[0], "sensors") == 0) {
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -665,13 +673,10 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-            sem_post(sem_shm);
         }
 
-        else if (strcmp(strtok(buffer, " "), "add_alert") == 0) {
+        else if (strcmp(instruction[0], "add_alert") == 0) {
             printf("WORKER: Add_alert\n");
-
-            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -690,10 +695,10 @@ void worker(int id) {
             for (int i = 0; i < config.max_alerts; i++) {
                 if (strcmp(shared_memory->alerts[i].id, "") == 0) {
                     space_alert = 1;
-                    strcpy(shared_memory->alerts[i].id, strtok(NULL, " "));
-                    strcpy(shared_memory->alerts[i].key, strtok(NULL, " "));
-                    shared_memory->alerts[i].min = atoi(strtok(NULL, " "));
-                    shared_memory->alerts[i].max = atoi(strtok(NULL, " "));
+                    strcpy(shared_memory->alerts[i].id, instruction[1]);
+                    strcpy(shared_memory->alerts[i].key, instruction[2]);
+                    shared_memory->alerts[i].min = atoi(instruction[3]);
+                    shared_memory->alerts[i].max = atoi(instruction[4]);
                     strcat(msg, "OK\n");
                     break;
                 }
@@ -710,13 +715,10 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-            sem_post(sem_shm);
         }
 
-        else if (strcmp(strtok(buffer, " "), "remove_alert") == 0) {
+        else if (strcmp(instruction[0], "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
-
-            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -734,15 +736,8 @@ void worker(int id) {
             int find_alert = 0;
             int pos;
 
-            char *qqrcoisa;
-
-            qqrcoisa = strtok(NULL, " ");
-
-            printf("QQRCOISA %s\n", qqrcoisa);
-
             for (int i = 0; i < config.max_alerts; i++) {
-                if (strcmp(qqrcoisa, shared_memory->alerts[i].id) == 0) {
-                    printf("AQUII!!!\n");
+                if (strcmp(instruction[1], shared_memory->alerts[i].id) == 0) {
                     find_alert = 1;
                     pos = i;
                     strcpy(shared_memory->alerts[i].id, "");
@@ -783,14 +778,10 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-
-            sem_post(sem_shm);
         }
 
-        else if (strcmp(buffer, "list_alerts") == 0) {
+        else if (strcmp(instruction[0], "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
-
-            sem_wait(sem_shm);
 
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -826,8 +817,6 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-
-            sem_post(sem_shm);
         }
 
         // receber dados sensor
@@ -926,7 +915,6 @@ void worker(int id) {
                         write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
                     }
                 }
-                sem_post(sem_alerts);
             }
 
             sem_post(sem_shm);
