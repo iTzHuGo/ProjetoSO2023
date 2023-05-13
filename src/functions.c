@@ -272,7 +272,7 @@ void user_console() {
                 } 
 
                 int max_msg_size = BUFFER_SIZE;
-                
+
                 if (msgrcv(msgq_id, &message, max_msg_size, 1, 0) == -1) {
                     printf("Erro ao receber mensagem.\n");
                     exit(EXIT_FAILURE);
@@ -288,6 +288,26 @@ void user_console() {
             else if (strcmp(instruction[0], "sensors") == 0) {
                 printf("Sensors\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+
+                printf("ID\n");
+
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = BUFFER_SIZE;
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 3, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("%s\n", message.mtext);
             }
             else if (strcmp(instruction[0], "add_alert") == 0) {
                 // verificar se os argumentos sao validos
@@ -436,7 +456,6 @@ void worker(int id) {
             } 
 
             message.mtype = 1;
-            // const char* msg = "Hello, world!";
 
             char msg[BUFFER_SIZE];
             msg[0] = '\0';
@@ -444,21 +463,14 @@ void worker(int id) {
             msg_stats[0] = '\0';
             for (int i = 0; i < config.max_keys; i++) {
                 if (strcmp(shared_memory->keys[i].name, "") != 0) {
-                    sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys[i].name, shared_memory->keys[i].last, shared_memory->keys[i].min, shared_memory->keys[i].max, shared_memory->keys[i].mean, shared_memory->keys[i].changes);
+                    sprintf(msg_stats, "%s %d %d %d %lf %d\n", shared_memory->keys[i].name, shared_memory->keys[i].last, shared_memory->keys[i].min, shared_memory->keys[i].max, shared_memory->keys[i].mean, shared_memory->keys[i].changes);
                     strcat(msg, msg_stats);
-                    strcat(msg, "\n");
                 } else {
                     break;
                 }
             }
 
-            /* char* msg_stats = NULL;
-            msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
-            sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
-            int max_msg_size = 100; // Defina um tamanho máximo para a mensagem
-            strncpy(message.mtext, msg_stats, max_msg_size); */
-
-            int max_msg_size = BUFFER_SIZE; // Defina um tamanho máximo para a mensagem
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
             strncpy(message.mtext, msg, max_msg_size);
 
             if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
@@ -467,28 +479,47 @@ void worker(int id) {
             }
             printf("FOI!\n");
 
-            /* char* msg_stats = NULL;
-            msg_stats = (char*) malloc((strlen(shared_memory->keys->name) * sizeof(char) + sizeof(shared_memory->keys->last) + sizeof(shared_memory->keys->min) + sizeof(shared_memory->keys->max) + sizeof(shared_memory->keys->mean) + sizeof(shared_memory->keys->changes)) + 1);
-            sprintf(msg_stats, "%s %d %d %d %lf %d", shared_memory->keys->name, shared_memory->keys->last, shared_memory->keys->min, shared_memory->keys->max, shared_memory->keys->mean, shared_memory->keys->changes);
-            // strcpy(message.mtext, msg_stats);
-            message.mtext = msg_stats;
-
-            printf("msg_stats: %s\n", msg_stats); */
-            // printf("message.mtext: %s\n", message.mtext);
-
-            // Envia para a messenge queue
-            // msgsnd(msgq_id, &message, sizeof(message), 0);
-            // printf("teste\n");
-
-            //free(msg_stats);
-
-            // strcpy(message.mtext, );
             printf("WORKER: Stats\n");
         }
         else if (strcmp(buffer, "reset") == 0) {
             printf("WORKER: Reset\n");
         }
         else if (strcmp(buffer, "sensors") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 3;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+            char msg_stats[BUFFER_SIZE];
+            msg_stats[0] = '\0';
+            for (int i = 0; i < config.max_sensors; i++) {
+                if (strcmp(shared_memory->sensors[i].id, "") != 0) {
+                    sprintf(msg_stats, "%s\n", shared_memory->sensors[i].id);
+                    strcat(msg, msg_stats);
+                } else {
+                    break;
+                }
+            }
+
+
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
+
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
+            printf("FOI!\n");
+            printf("msg: %s\n", message.mtext);
+
             printf("WORKER: Sensors\n");
         }
         else if (strcmp(buffer, "add_alert") == 0) {
