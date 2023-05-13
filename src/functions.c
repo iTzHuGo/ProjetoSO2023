@@ -103,13 +103,12 @@ void init() {
     }
 
 
-    init_shared_mem();   
 }
 
 // inicializa a memoria partilhada
 void init_shared_mem() {
     // inicializacao da memoria partilhada
-    int size = sizeof(shm) + sizeof(sensor_data) + sizeof(key_data) + sizeof(int*) + 1;
+    int size = sizeof(shm) + sizeof(sensor_data) * config.max_sensors + sizeof(key_data) * config.max_keys + sizeof(alert_data) * config.max_alerts + sizeof(int*) + 10;
     if ((shmid = shmget(IPC_PRIVATE, size, IPC_CREAT | 0777)) == -1) {
         write_log("ERROR CREATING SHARED MEMORY");
         exit(1);
@@ -261,6 +260,12 @@ void user_console() {
 
     // leitura do input do utilizador
     while (fgets(line, BUFFER_SIZE, stdin) != NULL) {
+        instruction[0][0] = '\0';
+        instruction[1][0] = '\0';
+        instruction[2][0] = '\0';
+        instruction[3][0] = '\0';
+        instruction[4][0] = '\0';
+
         if (strlen(line) != 1) {
             int pos = 0;
             token = strtok(line, " \n");
@@ -286,7 +291,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -308,7 +313,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -332,7 +337,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -382,7 +387,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -405,7 +410,7 @@ void user_console() {
                 printf("remover: %s\n", instruction[1]);
                 printf("msg: %s\n", msg);
                 write(fd_named_pipe, msg, strlen(msg) + 1);
-                
+
                 key_t key = ftok("msgfile", 'A');
                 int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
@@ -413,7 +418,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -438,7 +443,7 @@ void user_console() {
                 if (msgq_id == -1) {
                     printf("Erro ao recuperar a fila de mensagens.\n");
                     exit(EXIT_FAILURE);
-                } 
+                }
 
                 int max_msg_size = BUFFER_SIZE;
 
@@ -541,7 +546,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 1;
 
@@ -553,7 +558,8 @@ void worker(int id) {
                 if (strcmp(shared_memory->keys[i].name, "") != 0) {
                     sprintf(msg_stats, "%s %d %d %d %lf %d\n", shared_memory->keys[i].name, shared_memory->keys[i].last, shared_memory->keys[i].min, shared_memory->keys[i].max, shared_memory->keys[i].mean, shared_memory->keys[i].changes);
                     strcat(msg, msg_stats);
-                } else {
+                }
+                else {
                     break;
                 }
             }
@@ -575,7 +581,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 2;
 
@@ -614,7 +620,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 3;
 
@@ -626,7 +632,8 @@ void worker(int id) {
                 if (strcmp(shared_memory->sensors[i].id, "") != 0) {
                     sprintf(msg_stats, "%s\n", shared_memory->sensors[i].id);
                     strcat(msg, msg_stats);
-                } else {
+                }
+                else {
                     break;
                 }
             }
@@ -651,7 +658,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 4;
 
@@ -693,7 +700,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 5;
 
@@ -702,7 +709,12 @@ void worker(int id) {
             int find_alert = 0;
             int pos;
 
-            char *token = strtok(NULL, " ");
+            // char* token = strtok(NULL, " ");
+            char* token = strtok(buffer, " ");
+            while (token != NULL) {
+                printf("token = %s\n", token);
+                token = strtok(NULL, " ");
+            }
 
             printf("FDSSSSS %s\n", token);
 
@@ -731,13 +743,13 @@ void worker(int id) {
                     shared_memory->alerts[i].max = 0;
                     break;
                 }
-                else if (strcmp(shared_memory->alerts[i].id, "") == 0 && strcmp(shared_memory->alerts[i+1].id, "") == 0) {
+                else if (strcmp(shared_memory->alerts[i].id, "") == 0 && strcmp(shared_memory->alerts[i + 1].id, "") == 0) {
                     break;
                 }
-                strcpy(shared_memory->alerts[i].id, shared_memory->alerts[i+1].id);
-                strcpy(shared_memory->alerts[i].key, shared_memory->alerts[i+1].key);
-                shared_memory->alerts[i].min = shared_memory->alerts[i+1].min;
-                shared_memory->alerts[i].max = shared_memory->alerts[i+1].max;
+                strcpy(shared_memory->alerts[i].id, shared_memory->alerts[i + 1].id);
+                strcpy(shared_memory->alerts[i].key, shared_memory->alerts[i + 1].key);
+                shared_memory->alerts[i].min = shared_memory->alerts[i + 1].min;
+                shared_memory->alerts[i].max = shared_memory->alerts[i + 1].max;
             }
 
             strcat(msg, "OK\n");
@@ -753,7 +765,7 @@ void worker(int id) {
 
         else if (strcmp(buffer, "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
-            
+
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -761,7 +773,7 @@ void worker(int id) {
             if (msgq_id == -1) {
                 perror("Erro ao criar ou recuperar a fila de mensagens");
                 exit(EXIT_FAILURE);
-            } 
+            }
 
             message.mtype = 6;
 
@@ -774,7 +786,8 @@ void worker(int id) {
                     printf("Aqui\n");
                     sprintf(msg_stats, "%s %s %d %d\n", shared_memory->alerts[i].id, shared_memory->alerts[i].key, shared_memory->alerts[i].min, shared_memory->alerts[i].max);
                     strcat(msg, msg_stats);
-                } else {
+                }
+                else {
                     printf("break\n");
                     break;
                 }
@@ -853,6 +866,8 @@ void worker(int id) {
 
                         shared_memory->keys[i].changes++;
 
+                        shared_memory->keys[i].alert = 0;
+
                         char* send = (char*) malloc((strlen("WORKER:  DATA PROCESSING COMPLETED") + sizeof(id) + sizeof(key)) * sizeof(char) + 1);
                         sprintf(send, "WORKER%d: %s DATA PROCESSING COMPLETED", id, key);
                         write_log(send);
@@ -914,6 +929,57 @@ void alerts_watcher() {
     free(text);
 #endif
     //faz coisas de alerts watcher
+
+    key_t key = ftok("msgfile", 'A');
+    int msgq_id = msgget(key, 0666 | IPC_CREAT);
+    msgq message;
+
+    if (msgq_id == -1) {
+        perror("Erro ao criar ou recuperar a fila de mensagens");
+        exit(EXIT_FAILURE);
+    }
+
+    message.mtype = 7;
+
+    char msg[BUFFER_SIZE];
+    char msg_alert[BUFFER_SIZE];
+    int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+
+
+    while (1) {
+        //percorrer as keys
+        // percorrer os alertas se alert for != 1 e encontrar o alerta com a key
+        // verificar se o valor atual é maior ou menor que o valor do alerta
+        // se for, enviar mensagem para a msgq
+        // se nao for, nao fazer nada
+        // se nao encontrar o alerta, nao fazer nada
+        // se o alerta ja tiver sido enviado, nao fazer nada
+
+        for (int i = 0; i < config.max_keys; i++) {
+            msg[0] = '\0';
+            msg_alert[0] = '\0';
+            if (strcmp(shared_memory->keys[i].name, "") != 0 && shared_memory->keys[i].alert == 0) {
+                shared_memory->keys[i].alert = 1;
+                for (int j = 0; j < config.max_alerts; j++) {
+                    if (strcmp(shared_memory->alerts[j].key, shared_memory->keys[i].name) == 0) {
+                        printf("KEY: %s\n", shared_memory->keys[i].name);
+                        if ((shared_memory->keys[i].last > shared_memory->alerts[j].max) || (shared_memory->keys[i].last < shared_memory->alerts[j].min)) {
+                            sprintf(msg_alert, "ALERT:  KEY %s VALUE %d", shared_memory->keys[i].name, shared_memory->keys[i].last);
+                            write_log(msg_alert);
+                            strcat(msg, msg_alert);
+
+                            strncpy(message.mtext, msg, max_msg_size);
+
+                            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                                printf("Erro ao enviar mensagem.\n");
+                                exit(EXIT_FAILURE);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // funcao que le o ficheiro de configuracao
@@ -1003,33 +1069,7 @@ void read_config(char* config_file) {
             // guardar o numero maximo de sensores
             config.max_sensors = atoi(token);
 
-            shared_memory->sensors = (sensor_data*) (((void*) shared_memory) + sizeof(shm));
 
-            for (int j = 0; j < config.max_sensors; j++) {
-                strcpy(shared_memory->sensors[j].id, "");
-            }
-
-            shared_memory->keys = (key_data*) (((void*) shared_memory->sensors) + sizeof(sensor_data) * config.max_sensors);
-
-            // inicializar a lista de chaves
-            for (int j = 0; j < config.max_keys; j++) {
-                strcpy(shared_memory->keys[j].name, "");
-                shared_memory->keys[j].last = 0;
-                shared_memory->keys[j].min = 0;
-                shared_memory->keys[j].max = 0;
-                shared_memory->keys[j].mean = 0;
-                shared_memory->keys[j].changes = 0;
-            }
-
-            shared_memory->alerts = (alert_data*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
-
-            // inicializar a lista de alertas
-            for (int j = 0; j < config.max_alerts; j++) {
-                strcpy(shared_memory->alerts[j].id, "");
-                strcpy(shared_memory->alerts[j].key, "");
-                shared_memory->alerts[j].min = 0;
-                shared_memory->alerts[j].max = 0;
-            }
         }
         else if (i == 3) {
             if (!is_digit(token)) {
@@ -1042,8 +1082,41 @@ void read_config(char* config_file) {
             }
             // guardar o numero maximo de alertas
             config.max_alerts = atoi(token);
+
         }
         i++;
+    }
+    init_shared_mem();
+
+    shared_memory->sensors = (sensor_data*) (((void*) shared_memory) + sizeof(shm));
+
+    for (int j = 0; j < config.max_sensors; j++) {
+        strcpy(shared_memory->sensors[j].id, "");
+    }
+
+    shared_memory->keys = (key_data*) (((void*) shared_memory->sensors) + sizeof(sensor_data) * config.max_sensors);
+
+    // inicializar a lista de chaves
+    for (int j = 0; j < config.max_keys; j++) {
+        strcpy(shared_memory->keys[j].name, "");
+        shared_memory->keys[j].last = 0;
+        shared_memory->keys[j].min = 0;
+        shared_memory->keys[j].max = 0;
+        shared_memory->keys[j].mean = 0;
+        shared_memory->keys[j].changes = 0;
+    }
+
+    shared_memory->alerts = (alert_data*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
+
+    // inicializar a lista de alertas
+    for (int j = 0; j < config.max_alerts; j++) {
+        printf("MAX_KEYS: %d\n", config.max_keys);
+        printf("MAX_ALERTS: %d\n", config.max_alerts);
+        printf("j: %d\n", j);
+        strcpy(shared_memory->alerts[j].id, "");
+        strcpy(shared_memory->alerts[j].key, "");
+        shared_memory->alerts[j].min = 0;
+        shared_memory->alerts[j].max = 0;
     }
     // libertar o semaforo
     sem_post(sem_shm);
@@ -1209,11 +1282,11 @@ void* dispatcher() {
 
         while (!is_empty(&root)) {
             // print shared memory sensors
-            sem_wait(sem_shm);
-            for (int i = 0; i < config.max_keys; i++) {
-                printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->keys[i].last);
-            }
-            sem_post(sem_shm);
+            // sem_wait(sem_shm);
+            // for (int i = 0; i < config.max_keys; i++) {
+            //     printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->keys[i].last);
+            // }
+            // sem_post(sem_shm);
             // procurar um worker livre e escrever no pipe dele
             for (int i = 0; i < config.n_workers; i++) {
                 /* if (sem_getvalue(&sems_worker[i], worker_sem_val) == -1) {
@@ -1274,7 +1347,7 @@ void system_manager(char* config_file) {
     shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
 
 
-    // inicializar worker
+    // inicializar workers
     for (int i = 0; i < config.n_workers; i++) {
         // inicializar a lista de workers
         // 0 -> livre; 1 -> ocupado 
@@ -1295,6 +1368,7 @@ void system_manager(char* config_file) {
             exit(1);
         }
     }
+
     // inicializar alerts_watcher
     // int alerts_watcher_fork;
     // if ((alerts_watcher_fork = fork()) == 0) {

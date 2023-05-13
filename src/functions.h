@@ -43,6 +43,7 @@ typedef struct {
     int max;
     double mean;
     int changes;
+    int alert;
 } key_data;
 
 typedef struct {
