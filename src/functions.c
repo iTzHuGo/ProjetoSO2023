@@ -283,12 +283,28 @@ void user_console() {
             }
 
             else if (strcmp(instruction[0], "reset") == 0) {
-                printf("Reset\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = BUFFER_SIZE;
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 2, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("%s\n", message.mtext);
             }
 
             else if (strcmp(instruction[0], "sensors") == 0) {
-                printf("Sensors\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("ID\n");
@@ -525,6 +541,44 @@ void worker(int id) {
         else if (strcmp(buffer, "reset") == 0) {
             printf("WORKER: Reset\n");
             // mtype = 2
+            // voltar a fazer o mesmo da incialização, para os sensores e para as chaves
+
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 2;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+
+            for (int i = 0; i < config.max_sensors; i++) {
+                strcpy(shared_memory->sensors[i].id, "");
+            }
+
+            for (int i = 0; i < config.max_keys; i++) {
+                strcpy(shared_memory->keys[i].name, "");
+                shared_memory->keys[i].last = 0;
+                shared_memory->keys[i].min = 0;
+                shared_memory->keys[i].max = 0;
+                shared_memory->keys[i].mean = 0;
+                shared_memory->keys[i].changes = 0;
+            }
+
+            strcat(msg, "OK\n");
+
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
+
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
         }
 
         else if (strcmp(buffer, "sensors") == 0) {
@@ -607,7 +661,6 @@ void worker(int id) {
         else if (strcmp(buffer, "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
             // mtype = 5
-            // voltar a fazer o mesmo da incialização, para os sensores e para as chaves
         }
 
         else if (strcmp(buffer, "list_alerts") == 0) {
