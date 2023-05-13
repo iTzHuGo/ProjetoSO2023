@@ -401,7 +401,7 @@ void user_console() {
 
             // comando invalido
             else {
-                printf("INVALID PARAMETER\n");
+                printf("INVALID PARAMETER\n\n");
             }
         }
     }
@@ -524,7 +524,7 @@ void worker(int id) {
 
         else if (strcmp(buffer, "reset") == 0) {
             printf("WORKER: Reset\n");
-            // 2
+            // mtype = 2
         }
 
         else if (strcmp(buffer, "sensors") == 0) {
@@ -606,7 +606,8 @@ void worker(int id) {
 
         else if (strcmp(buffer, "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
-            // 5
+            // mtype = 5
+            // voltar a fazer o mesmo da incialização, para os sensores e para as chaves
         }
 
         else if (strcmp(buffer, "list_alerts") == 0) {
@@ -629,9 +630,11 @@ void worker(int id) {
             msg_stats[0] = '\0';
             for (int i = 0; i < config.max_alerts; i++) {
                 if (strcmp(shared_memory->alerts[i].id, "") != 0) {
+                    printf("Aqui\n");
                     sprintf(msg_stats, "%s %s %d %d\n", shared_memory->alerts[i].id, shared_memory->alerts[i].key, shared_memory->alerts[i].min, shared_memory->alerts[i].max);
                     strcat(msg, msg_stats);
                 } else {
+                    printf("break\n");
                     break;
                 }
             }
