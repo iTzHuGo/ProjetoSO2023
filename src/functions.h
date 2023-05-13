@@ -46,6 +46,13 @@ typedef struct {
 } key_data;
 
 typedef struct {
+    char id[33];
+    char key[33];
+    int min;
+    int max;
+} alert_data;
+
+typedef struct {
     int queue_sz;
     int n_workers;
     int max_keys;
@@ -57,6 +64,7 @@ typedef struct {
 typedef struct {
     sensor_data* sensors;
     key_data* keys;
+    alert_data* alerts;
     int* workers_list;
 } shm;
 

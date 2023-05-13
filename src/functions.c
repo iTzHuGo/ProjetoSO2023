@@ -257,6 +257,7 @@ void user_console() {
                 close(fd_named_pipe);
                 break;
             }
+
             else if (strcmp(instruction[0], "stats") == 0) {
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
 
@@ -280,11 +281,12 @@ void user_console() {
 
                 printf("%s\n", message.mtext);
             }
+
             else if (strcmp(instruction[0], "reset") == 0) {
                 printf("Reset\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
-
             }
+
             else if (strcmp(instruction[0], "sensors") == 0) {
                 printf("Sensors\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
@@ -309,6 +311,7 @@ void user_console() {
 
                 printf("%s\n", message.mtext);
             }
+
             else if (strcmp(instruction[0], "add_alert") == 0) {
                 // verificar se os argumentos sao validos
                 if (strlen(instruction[1]) < 3 || strlen(instruction[1]) > 32) {
@@ -340,7 +343,25 @@ void user_console() {
                 printf("min: %s\n", instruction[3]);
                 printf("max: %s\n\n", instruction[4]);
 #endif
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = BUFFER_SIZE;
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 4, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("%s\n", message.mtext);
             }
+
             else if (strcmp(instruction[0], "remove_alert") == 0) {
                 // verificar se os argumentos sao validos
                 if (strlen(instruction[1]) < 3 || strlen(instruction[1]) > 32) {
@@ -352,6 +373,7 @@ void user_console() {
                 write(fd_named_pipe, msg, strlen(msg) + 1);
                 printf("Alert %s removed successfully!\n\n", instruction[1]);
             }
+
             else if (strcmp(instruction[0], "list_alerts") == 0) {
                 printf("List_alerts\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
@@ -477,13 +499,13 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-            printf("FOI!\n");
-
-            printf("WORKER: Stats\n");
         }
+
         else if (strcmp(buffer, "reset") == 0) {
             printf("WORKER: Reset\n");
+            // 2
         }
+
         else if (strcmp(buffer, "sensors") == 0) {
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -517,19 +539,58 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
-            printf("FOI!\n");
-            printf("msg: %s\n", message.mtext);
+        }
 
-            printf("WORKER: Sensors\n");
-        }
-        else if (strcmp(buffer, "add_alert") == 0) {
+        else if (strcmp(strtok(buffer, " "), "add_alert") == 0) {
             printf("WORKER: Add_alert\n");
+
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 4;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+            int space_alert = 0;
+            for (int i = 0; i < config.max_alerts; i++) {
+                if (strcmp(shared_memory->alerts[i].id, "") == 0) {
+                    space_alert = 1;
+                    strcpy(shared_memory->alerts[i].id, strtok(NULL, " "));
+                    strcpy(shared_memory->alerts[i].key, strtok(NULL, " "));
+                    shared_memory->alerts[i].min = atoi(strtok(NULL, " "));
+                    shared_memory->alerts[i].max = atoi(strtok(NULL, " "));
+                    strcat(msg, "OK\n");
+                    break;
+                }
+            }
+
+            if (space_alert == 0) {
+                strcat(msg, "ERROR\n");
+            }
+
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
+
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
         }
+
         else if (strcmp(buffer, "remove_alert") == 0) {
             printf("WORKER: Remove_alert\n");
+            // 5
         }
+
         else if (strcmp(buffer, "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
+            // 6
         }
         // receber dados sensor
         else {
@@ -765,6 +826,16 @@ void read_config(char* config_file) {
                 shared_memory->keys[j].max = 0;
                 shared_memory->keys[j].mean = 0;
                 shared_memory->keys[j].changes = 0;
+            }
+
+            shared_memory->alerts = (alert_data*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
+
+            // inicializar a lista de alertas
+            for (int j = 0; j < config.max_alerts; j++) {
+                strcpy(shared_memory->alerts[j].id, "");
+                strcpy(shared_memory->alerts[j].key, "");
+                shared_memory->alerts[j].min = 0;
+                shared_memory->alerts[j].max = 0;
             }
         }
         else if (i == 3) {
