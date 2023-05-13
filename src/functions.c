@@ -60,6 +60,18 @@ void init() {
     write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
 
+    // inicializacao do semaforo para os workers
+    sem_unlink("SEM_WORKERS");
+    sem_workers = sem_open("SEM_WORKERS", O_CREAT | O_EXCL, 0700, 1);
+
+    if (sem_workers == SEM_FAILED) {
+        write_log("OPENING SEMAPHORE FOR WORKERS FAILED");
+        terminate();
+    }
+#if DEBUG
+    write_log("[DEBUG] SEMAPHORE FOR WORKERS CREATED");
+#endif
+
     // inicializacao a raiz da internal queue
     //root = NULL;
 
@@ -138,6 +150,10 @@ void terminate() {
     // terminar semaforo da memoria partilhada
     sem_close(sem_shm);
     sem_unlink("SEM_SHM");
+
+    // terminar semaforo dos workers
+    sem_close(sem_workers);
+    sem_unlink("SEM_WORKERS");
 
     pthread_mutex_destroy(&mutex_internal_queue);
 
@@ -497,14 +513,6 @@ void worker(int id) {
         exit(1);
     } */
 
-
-    // inicializar semaforo apenas para este worker
-    if (sem_init(&sems_worker[id], 0, 1) < 0) {
-        printf("ERROR CREATING SEMAPHORE");
-        terminate();
-    }
-    printf("SEM %d CREATED\n", id);
-
     while (1) {
         // read [0] || write [1]
         if (read(unnamed_pipes[id][0], buffer, BUFFER_SIZE) < 0) {
@@ -515,7 +523,7 @@ void worker(int id) {
         // worker busy
         shared_memory->workers_list[id] = 1;
         sem_post(sem_shm);
-        sem_wait(&sems_worker[id]);
+        sem_wait(sem_workers);
 
 
 #ifdef DEBUG
@@ -694,13 +702,12 @@ void worker(int id) {
             int find_alert = 0;
             int pos;
 
-            char* token = strtok(buffer, " ");
-            printf("strtok: %s\n", token);
-            printf("fds\n");
-            char* token2 = strtok(NULL, " ");
-            printf("strtok2: %s\n", token2);
+            char *token = strtok(NULL, " ");
+
+            printf("FDSSSSS %s\n", token);
+
             for (int i = 0; i < config.max_alerts; i++) {
-                if (strcmp(token2, shared_memory->alerts[i].id) == 0) {
+                if (strcmp(token, shared_memory->alerts[i].id) == 0) {
                     printf("AQUII!!!\n");
                     find_alert = 1;
                     pos = i;
@@ -885,7 +892,7 @@ void worker(int id) {
 
 
         // worker ready
-        sem_post(&sems_worker[id]);
+        sem_post(sem_workers);
         sem_wait(sem_shm);
         shared_memory->workers_list[id] = 0;
         sem_post(sem_shm);
@@ -894,10 +901,6 @@ void worker(int id) {
 #endif
 
     }
-
-    // fecha o semaforo
-    sem_destroy(&sems_worker[id]);
-    printf("SEM %d DESTROYED\n", id);
 }
 
 
@@ -1266,7 +1269,7 @@ void system_manager(char* config_file) {
     unnamed_pipes = malloc(config.n_workers * sizeof(int*));
 
     // alocar memoria para os unnamed semaphores dos workers
-    sems_worker = malloc(config.n_workers * sizeof(sem_t));
+    // sems_worker = malloc(config.n_workers * sizeof(sem_t));
 
     shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
 

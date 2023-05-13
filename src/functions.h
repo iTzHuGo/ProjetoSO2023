@@ -85,7 +85,7 @@ typedef struct {
 FILE* log_file;
 sem_t* sem_log;
 sem_t* sem_shm;
-sem_t* sems_worker;
+sem_t* sem_workers;
 config_data config;
 int terminate_threads;
 node* root;
