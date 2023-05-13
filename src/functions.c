@@ -377,10 +377,31 @@ void user_console() {
             else if (strcmp(instruction[0], "list_alerts") == 0) {
                 printf("List_alerts\n\n");
                 write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+
+                printf("ID Key MIN MAX\n");
+
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+                msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                } 
+
+                int max_msg_size = BUFFER_SIZE;
+
+                if (msgrcv(msgq_id, &message, max_msg_size, 6, 0) == -1) {
+                    printf("Erro ao receber mensagem.\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("%s\n", message.mtext);
             }
+
             // comando invalido
             else {
-                printf("INVALID PARAMETER");
+                printf("INVALID PARAMETER\n");
             }
         }
     }
@@ -590,8 +611,40 @@ void worker(int id) {
 
         else if (strcmp(buffer, "list_alerts") == 0) {
             printf("WORKER: List_alerts\n");
-            // 6
+            
+           key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
+            msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            } 
+
+            message.mtype = 6;
+
+            char msg[BUFFER_SIZE];
+            msg[0] = '\0';
+            char msg_stats[BUFFER_SIZE];
+            msg_stats[0] = '\0';
+            for (int i = 0; i < config.max_alerts; i++) {
+                if (strcmp(shared_memory->alerts[i].id, "") != 0) {
+                    sprintf(msg_stats, "%s %s %d %d\n", shared_memory->alerts[i].id, shared_memory->alerts[i].key, shared_memory->alerts[i].min, shared_memory->alerts[i].max);
+                    strcat(msg, msg_stats);
+                } else {
+                    break;
+                }
+            }
+
+            int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
+            strncpy(message.mtext, msg, max_msg_size);
+
+            if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
+                printf("Erro ao enviar mensagem.\n");
+                exit(EXIT_FAILURE);
+            }
         }
+
         // receber dados sensor
         else {
             char* token = strtok(buffer, "#");
