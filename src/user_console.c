@@ -11,6 +11,16 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (!is_digit(argv[1])) {
+        printf("CONSOLE IDENTIFIER INVALID");
+        exit(1);
+    }
+
+    if (atoi(argv[1]) < 0) {
+        printf("CONSOLE IDENTIFIER INVALID");
+        exit(1);
+    }
+
     // int user_console_id = atoi(argv[1]);	// identificador da consola
 
     // Inicializa o processo do user console

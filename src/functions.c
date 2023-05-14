@@ -854,9 +854,11 @@ void worker(int id) {
                 char* value = token;
                 // verificar se a key existe na lista de keys
                 int found = 0;
+                int sensor_flag = 0;
                 sem_wait(sem_shm);
                 for (int i = 0; i < config.max_keys; i++) {
                     if (strcmp(shared_memory->keys[i].name, key) == 0) {
+                        sensor_flag = 1;
                         found = 1;
                         // atualizar os valores
                         shared_memory->keys[i].last = atoi(value);
@@ -884,25 +886,29 @@ void worker(int id) {
                     }
                 }
 
-                if (found == 0) {
-                    int key_flag = 0;
-                    // se nao existir
-                    // procurar por um espaco vazio e adicionar a key
-                    for (int i = 0; i < config.max_keys; i++) {
-                        if (strcmp(shared_memory->keys[i].name, "") == 0) {
-                            key_flag = 1;
-                            strcpy(shared_memory->keys[i].name, key);
-                            shared_memory->keys[i].last = atoi(value);
-                            shared_memory->keys[i].min = atoi(value);
-                            shared_memory->keys[i].max = atoi(value);
-                            shared_memory->keys[i].mean = atoi(value);
-                            shared_memory->keys[i].changes = 1;
-                            break;
+                if (sensor_flag == 0) {
+                    write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED");
+                } else {
+                    if (found == 0) {
+                        int key_flag = 0;
+                        // se nao existir
+                        // procurar por um espaco vazio e adicionar a key
+                        for (int i = 0; i < config.max_keys; i++) {
+                            if (strcmp(shared_memory->keys[i].name, "") == 0) {
+                                key_flag = 1;
+                                strcpy(shared_memory->keys[i].name, key);
+                                shared_memory->keys[i].last = atoi(value);
+                                shared_memory->keys[i].min = atoi(value);
+                                shared_memory->keys[i].max = atoi(value);
+                                shared_memory->keys[i].mean = atoi(value);
+                                shared_memory->keys[i].changes = 1;
+                                break;
+                            }
                         }
-                    }
 
-                    if (key_flag == 0) {
-                        write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
+                        if (key_flag == 0) {
+                            write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
+                        }
                     }
                 }
             }
@@ -1204,8 +1210,7 @@ void* console_reader() {
         printf("RECEIVED: %s\n", received);
         pthread_mutex_lock(&mutex_internal_queue);
 
-        if (size(root) > config.queue_sz) {  // TODO verificar se esta correto -> congif.queue_sz ou shared_memory->queue_sz??????????????
-            printf("QUEUE FULL - bloqueada\n");
+        if (size(root) > config.queue_sz) {
             // thread bloqueada ate que a queue nao esteja cheia
             pthread_cond_wait(&cond_internal_queue, &mutex_internal_queue);
         }
@@ -1246,7 +1251,7 @@ void* sensor_reader() {
 
         if (size(root) > config.queue_sz) {
             char text[BUFFER_SIZE];
-            sprintf(text, "ORDER %s DELETED", received);  // TODO verificar frase
+            sprintf(text, "QUEUE FULL ORDER %s DELETED", received);  // TODO verificar frase
             write_log(text);
         }
         else {
