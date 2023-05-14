@@ -676,8 +676,6 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "add_alert") == 0) {
-            printf("WORKER: Add_alert\n");
-
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -718,8 +716,6 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "remove_alert") == 0) {
-            printf("WORKER: Remove_alert\n");
-
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -800,12 +796,10 @@ void worker(int id) {
             msg_stats[0] = '\0';
             for (int i = 0; i < config.max_alerts; i++) {
                 if (strcmp(shared_memory->alerts[i].id, "") != 0) {
-                    printf("Aqui\n");
                     sprintf(msg_stats, "%s %s %d %d\n", shared_memory->alerts[i].id, shared_memory->alerts[i].key, shared_memory->alerts[i].min, shared_memory->alerts[i].max);
                     strcat(msg, msg_stats);
                 }
                 else {
-                    printf("break\n");
                     break;
                 }
             }
@@ -853,12 +847,8 @@ void worker(int id) {
                 write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED");
             }
             else {
-
-
                 token = strtok(NULL, "#");
                 char* key = token;
-
-
 
                 token = strtok(NULL, "#");
                 char* value = token;
@@ -919,9 +909,6 @@ void worker(int id) {
 
             sem_post(sem_shm);
         }
-
-
-
 
         // worker ready
         sem_post(sem_workers);
