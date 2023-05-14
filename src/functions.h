@@ -120,6 +120,7 @@ pthread_cond_t cond_internal_queue;
 
 // Message queue
 int msgq_id;
+key_t key;
 
 // Funcoes
 void init();

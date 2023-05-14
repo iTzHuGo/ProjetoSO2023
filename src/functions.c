@@ -36,12 +36,6 @@ void init() {
     write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
 
-    // inicializacao da message queue
-    if((msgq_id = msgget(IPC_PRIVATE, IPC_CREAT|0777)) == -1) {
-    	perror("Cannot create message queue");
-		exit(1);
-	}
-
     // inicializacao do semaforo para os workers
     sem_unlink("SEM_WORKERS");
     sem_workers = sem_open("SEM_WORKERS", O_CREAT | O_EXCL, 0700, 1);
@@ -175,7 +169,7 @@ void terminate() {
     unlink(CONSOLE_PIPE);
 
     // fechar message queue
-    msgctl(msgq_id, IPC_RMID, NULL);
+    msgctl(msgget(ftok("msgfile", 'A'), 0666 | IPC_CREAT), IPC_RMID, NULL);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -237,7 +231,16 @@ void sigint_console(int sigum) {
 
 void* msgw_listener(void* id) {
     int console_id = *((int*) id);
+    
+    key_t key = ftok("msgfile", 'A');
+    int msgq_id = msgget(key, 0666 | IPC_CREAT);
     msgq message;
+
+    if (msgq_id == -1) {
+        printf("Erro ao recuperar a fila de mensagens.\n");
+        exit(EXIT_FAILURE);
+    }
+
     int max_msg_size = BUFFER_SIZE;
 
     while (true) {
@@ -309,7 +312,15 @@ void user_console(int console_id) {
 
                 printf("Key Last Min Max Avg Count\n");
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 1, 0) == -1) {
@@ -323,7 +334,15 @@ void user_console(int console_id) {
             else if (strcmp(instruction[0], "reset") == 0) {
                 write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 2, 0) == -1) {
@@ -339,7 +358,15 @@ void user_console(int console_id) {
 
                 printf("ID\n");
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 3, 0) == -1) {
@@ -382,7 +409,15 @@ void user_console(int console_id) {
                 printf("max: %s\n\n", instruction[4]);
 #endif
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 4, 0) == -1) {
@@ -407,7 +442,15 @@ void user_console(int console_id) {
 #endif
                 write(fd_named_pipe_console, msg, strlen(msg) + 1);
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 5, 0) == -1) {
@@ -423,7 +466,15 @@ void user_console(int console_id) {
 
                 printf("ID Key MIN MAX\n");
 
+                key_t key = ftok("msgfile", 'A');
+                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
+
+                if (msgq_id == -1) {
+                    printf("Erro ao recuperar a fila de mensagens.\n");
+                    exit(EXIT_FAILURE);
+                }
+
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 6, 0) == -1) {
@@ -534,7 +585,15 @@ void worker(int id) {
 
         // receber dados consol
         if (strcmp(instruction[0], "stats") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
+
             message.mtype = 1;
 
             char msg[BUFFER_SIZE];
@@ -567,7 +626,15 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "reset") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
+
             message.mtype = 2;
 
             char msg[BUFFER_SIZE];
@@ -604,7 +671,14 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "sensors") == 0) {
+           key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
 
             message.mtype = 3;
 
@@ -639,7 +713,14 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "add_alert") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
 
             message.mtype = 4;
 
@@ -691,7 +772,14 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "remove_alert") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
 
             message.mtype = 5;
 
@@ -751,7 +839,14 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "list_alerts") == 0) {
+            key_t key = ftok("msgfile", 'A');
+            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
+
+            if (msgq_id == -1) {
+                perror("Erro ao criar ou recuperar a fila de mensagens");
+                exit(EXIT_FAILURE);
+            }
 
             message.mtype = 6;
 
@@ -907,7 +1002,16 @@ void alerts_watcher() {
     write_log(text);
     free(text);
 #endif
+
+    key_t key = ftok("msgfile", 'A');
+    int msgq_id = msgget(key, 0666 | IPC_CREAT);
     msgq message;
+
+    if (msgq_id == -1) {
+        perror("Erro ao criar ou recuperar a fila de mensagens");
+        exit(EXIT_FAILURE);
+    }
+
     char msg[BUFFER_SIZE];
     char msg_alert[BUFFER_SIZE];
     int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
