@@ -51,6 +51,7 @@ typedef struct {
     char key[33];
     int min;
     int max;
+    int console_id;
 } alert_data;
 
 typedef struct {
@@ -91,14 +92,17 @@ sem_t* sem_alerts;
 config_data config;
 int terminate_threads;
 node* root;
+int counter_sensor;
 
 pthread_t console_reader_thread;
 pthread_t sensor_reader_thread;
 pthread_t dispatcher_thread;
+pthread_t console_reader_msgq_listener_thread;
 
 int fd_console_pipe;
 int fd_sensor_pipe;
 int(*unnamed_pipes)[2];
+int fd_named_pipe_console;
 
 // Shared memory
 int shmid;
@@ -124,7 +128,8 @@ void init();
 void init_shared_mem();
 void terminate();
 void write_log(char* msg);
-void user_console();
+void user_console(int console_id);
 void sensor(char* id, int interval, char* key, int min, int max);
 void system_manager(char* config_file);
 bool is_digit(char argument[]);
+void sigstp_handler(int signum);

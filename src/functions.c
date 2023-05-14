@@ -142,9 +142,34 @@ void init_shared_mem() {
 
 }
 
+// remove um no da internal queue
+void pop(node** root) {
+    node* temp = *root;
+    (*root) = (*root)->next;
+    free(temp->msg);
+    free(temp);
+}
+
+// verifica se a internal queue esta vazia
+int is_empty(node** root) {
+    return (*root) == NULL;
+}
+
+char* peek(node** root) {
+    return (*root)->msg;
+}
+
 // termina o programa
 void terminate() {
     write_log("HOME_IOT SIMULATOR CLOSING");
+
+    write_log("INTERNAL QUEUE PRINTING:");
+    while (!is_empty(&root)) {
+        printf("%s\n", peek(&root));
+        pop(&root);
+    }
+
+    write_log("FINISHED PRINTING INTERNAL QUEUE");
 
     terminate_threads = 1;
 
@@ -181,7 +206,7 @@ void terminate() {
     unlink(CONSOLE_PIPE);
 
     // fechar message queue
-    //msgctl(msgq_id, IPC_RMID, NULL);
+    msgctl(msgget(ftok("msgfile", 'A'), 0666 | IPC_CREAT), IPC_RMID, NULL);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -236,7 +261,39 @@ bool is_digit(char argument[]) {
     return true;
 }
 
-void user_console() {
+void sigint_console(int sigum) {
+    close(fd_named_pipe_console);
+    exit(0);
+}
+
+void* msgw_listener(void* id) {
+    int console_id = *((int*) id);
+
+    key_t key = ftok("msgfile", 'A');
+    int msgq_id = msgget(key, 0666 | IPC_CREAT);
+    msgq message;
+
+    printf("Console %d listening...\n", console_id);
+
+    if (msgq_id == -1) {
+        printf("Erro ao recuperar a fila de mensagens.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int max_msg_size = BUFFER_SIZE;
+
+    while (true) {
+        if (msgrcv(msgq_id, &message, max_msg_size, 7 + console_id, 0) == -1) {
+            printf("Erro ao receber mensagem.\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (message.mtype == 7 + console_id)
+            printf("%s\n", message.mtext);
+    }
+}
+
+void user_console(int console_id) {
 #if DEBUG
     char* text = NULL;
     int pid = getpid();
@@ -247,10 +304,11 @@ void user_console() {
 #endif
     char line[BUFFER_SIZE], instruction[5][BUFFER_SIZE];
     char* token;
-    int fd_named_pipe;
+
+    signal(SIGINT, sigint_console);
 
     // abrir o pipe
-    if ((fd_named_pipe = open(CONSOLE_PIPE, O_RDWR)) < 0) {
+    if ((fd_named_pipe_console = open(CONSOLE_PIPE, O_RDWR)) < 0) {
         printf("ERROR OPENING CONSOLE PIPE");
         exit(1);
     }
@@ -270,6 +328,9 @@ void user_console() {
     printf("\tremove_alert [id]\n\tRemove uma regra de alerta do sistema\n\n");
     printf("\tlist_alerts\n\tLista todas as regras de alerta que existem no sistema\n\n");
 
+    pthread_create(&console_reader_msgq_listener_thread, NULL, msgw_listener, &console_id);
+
+    // pthread_join(console_reader_msgq_listener_thread, NULL);
 
     // leitura do input do utilizador
     while (fgets(line, BUFFER_SIZE, stdin) != NULL) {
@@ -288,12 +349,12 @@ void user_console() {
             }
 
             if (strcmp(instruction[0], "exit") == 0) {
-                close(fd_named_pipe);
+                close(fd_named_pipe_console);
                 break;
             }
 
             else if (strcmp(instruction[0], "stats") == 0) {
-                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+                write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("Key Last Min Max Avg Count\n");
 
@@ -317,7 +378,7 @@ void user_console() {
             }
 
             else if (strcmp(instruction[0], "reset") == 0) {
-                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+                write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
                 key_t key = ftok("msgfile", 'A');
                 int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -339,7 +400,7 @@ void user_console() {
             }
 
             else if (strcmp(instruction[0], "sensors") == 0) {
-                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+                write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("ID\n");
 
@@ -384,9 +445,9 @@ void user_console() {
                     printf("MIN MAIOR QUE MAX\n\n");
                     continue;
                 }
-                char msg[BUFFER_SIZE * 5];
-                sprintf(msg, "%s %s %s %s %s", instruction[0], instruction[1], instruction[2], instruction[3], instruction[4]);
-                write(fd_named_pipe, msg, strlen(msg) + 1);
+                char msg[BUFFER_SIZE * 6];
+                sprintf(msg, "%s %s %s %s %s %d", instruction[0], instruction[1], instruction[2], instruction[3], instruction[4], console_id);
+                write(fd_named_pipe_console, msg, strlen(msg) + 1);
 #if DEBUG
                 printf("id: %s\n", instruction[1]);
                 printf("chave: %s\n", instruction[2]);
@@ -422,7 +483,7 @@ void user_console() {
                 sprintf(msg, "%s %s", instruction[0], instruction[1]);
                 printf("remover: %s\n", instruction[1]);
                 printf("msg: %s\n", msg);
-                write(fd_named_pipe, msg, strlen(msg) + 1);
+                write(fd_named_pipe_console, msg, strlen(msg) + 1);
 
                 key_t key = ftok("msgfile", 'A');
                 int msgq_id = msgget(key, 0666 | IPC_CREAT);
@@ -444,8 +505,7 @@ void user_console() {
             }
 
             else if (strcmp(instruction[0], "list_alerts") == 0) {
-                printf("List_alerts\n\n");
-                write(fd_named_pipe, instruction[0], strlen(instruction[0]) + 1);
+                write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
                 printf("ID Key MIN MAX\n");
 
@@ -475,7 +535,11 @@ void user_console() {
         }
     }
 
-    close(fd_named_pipe);
+    close(fd_named_pipe_console);
+}
+
+void sigstp_handler(int signum) {
+    printf("Counter: %d\n", counter_sensor);
 }
 
 //{identificador do sensor} {intervalo entre envios em segundos (>=0)} {chave} {min} {max}
@@ -489,7 +553,10 @@ void sensor(char* id, int interval, char* key, int min, int max) {
     free(text);
 #endif
 
+    signal(SIGTSTP, sigstp_handler);
+
     int fd_named_pipe;
+    counter_sensor = 0;
 
     // abrir o pipe
     if ((fd_named_pipe = open(SENSOR_PIPE, O_RDWR)) < 0) {
@@ -497,12 +564,15 @@ void sensor(char* id, int interval, char* key, int min, int max) {
         exit(1);
     }
 
+
+
     char message[BUFFER_SIZE];
     while (1) {
         sprintf(message, "%s#%s#%d", id, key, rand() % (max - min + 1) + min);
         // print message
         printf("%s\n", message);
         write(fd_named_pipe, message, strlen(message) + 1);
+        counter_sensor++;
         sleep(interval);
     }
 
@@ -544,19 +614,22 @@ void worker(int id) {
         sem_wait(sem_workers);
 
 
-#ifdef DEBUG
-        printf("[DEBUG] WORKER %d BUSY\n", id);
-#endif
+        char* textxx = (char*) malloc((strlen("WORKER  BUSY") + sizeof(id)) * sizeof(char) + 1);
+        sprintf(textxx, "WORKER %d BUSY", id);
+        write_log(textxx);
+        free(textxx);
 
-        printf("buffer: %s\n", buffer);
+        // printf("buffer: %s\n", buffer);
 
         int aux = 0;
-        char instruction[5][BUFFER_SIZE];
+        int id_console = 0;
+        char instruction[6][BUFFER_SIZE];
         instruction[0][0] = '\0';
         instruction[1][0] = '\0';
         instruction[2][0] = '\0';
         instruction[3][0] = '\0';
         instruction[4][0] = '\0';
+        instruction[5][0] = '\0';
 
         char* token = strtok(buffer, " ");
         while (token != NULL) {
@@ -708,6 +781,7 @@ void worker(int id) {
                         strcpy(shared_memory->alerts[i].key, instruction[2]);
                         shared_memory->alerts[i].min = atoi(instruction[3]);
                         shared_memory->alerts[i].max = atoi(instruction[4]);
+                        shared_memory->alerts[i].console_id = atoi(instruction[5]);
                         strcat(msg, "OK\n");
                         break;
                     }
@@ -856,7 +930,7 @@ void worker(int id) {
             sem_post(sem_shm);
 
             if (space == 0) {
-                write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED");
+                write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED1");
             }
             else {
                 token = strtok(NULL, "#");
@@ -866,11 +940,11 @@ void worker(int id) {
                 char* value = token;
                 // verificar se a key existe na lista de keys
                 int found = 0;
-                int sensor_flag = 0;
+                // int sensor_flag = 0;
                 sem_wait(sem_shm);
                 for (int i = 0; i < config.max_keys; i++) {
                     if (strcmp(shared_memory->keys[i].name, key) == 0) {
-                        sensor_flag = 1;
+                        // sensor_flag = 1;
                         found = 1;
                         // atualizar os valores
                         shared_memory->keys[i].last = atoi(value);
@@ -898,44 +972,48 @@ void worker(int id) {
                     }
                 }
 
-                if (sensor_flag == 0) {
-                    write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED");
-                } else {
-                    if (found == 0) {
-                        int key_flag = 0;
-                        // se nao existir
-                        // procurar por um espaco vazio e adicionar a key
-                        for (int i = 0; i < config.max_keys; i++) {
-                            if (strcmp(shared_memory->keys[i].name, "") == 0) {
-                                key_flag = 1;
-                                strcpy(shared_memory->keys[i].name, key);
-                                shared_memory->keys[i].last = atoi(value);
-                                shared_memory->keys[i].min = atoi(value);
-                                shared_memory->keys[i].max = atoi(value);
-                                shared_memory->keys[i].mean = atoi(value);
-                                shared_memory->keys[i].changes = 1;
-                                break;
-                            }
-                        }
-
-                        if (key_flag == 0) {
-                            write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
+                // if (sensor_flag == 0) {
+                //     write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED2");
+                // } else {
+                if (found == 0) {
+                    int key_flag = 0;
+                    // se nao existir
+                    // procurar por um espaco vazio e adicionar a key
+                    for (int i = 0; i < config.max_keys; i++) {
+                        if (strcmp(shared_memory->keys[i].name, "") == 0) {
+                            key_flag = 1;
+                            strcpy(shared_memory->keys[i].name, key);
+                            shared_memory->keys[i].last = atoi(value);
+                            shared_memory->keys[i].min = atoi(value);
+                            shared_memory->keys[i].max = atoi(value);
+                            shared_memory->keys[i].mean = atoi(value);
+                            shared_memory->keys[i].changes = 1;
+                            break;
                         }
                     }
+
+                    if (key_flag == 0) {
+                        write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
+                    }
                 }
+                // }
             }
 
             sem_post(sem_shm);
+            sem_post(sem_alerts);
         }
 
         // worker ready
         sem_post(sem_workers);
+
         sem_wait(sem_shm);
         shared_memory->workers_list[id] = 0;
         sem_post(sem_shm);
-#ifdef DEBUG
-        printf("[DEBUG] WORKER %d READY\n", id);
-#endif
+
+        char* textxxx = (char*) malloc((strlen("WORKER  READY") + sizeof(id)) * sizeof(char) + 1);
+        sprintf(textxxx, "WORKER %d READY", id);
+        write_log(textxxx);
+        free(textxxx);
 
     }
 }
@@ -961,8 +1039,6 @@ void alerts_watcher() {
         exit(EXIT_FAILURE);
     }
 
-    message.mtype = 7;
-
     char msg[BUFFER_SIZE];
     char msg_alert[BUFFER_SIZE];
     int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
@@ -985,10 +1061,11 @@ void alerts_watcher() {
                     if (strcmp(shared_memory->alerts[j].key, shared_memory->keys[i].name) == 0) {
                         printf("KEY: %s\n", shared_memory->keys[i].name);
                         if ((shared_memory->keys[i].last > shared_memory->alerts[j].max) || (shared_memory->keys[i].last < shared_memory->alerts[j].min)) {
+                            message.mtype = 7 + shared_memory->alerts[j].console_id;
+
                             sprintf(msg_alert, "ALERT:  KEY %s VALUE %d", shared_memory->keys[i].name, shared_memory->keys[i].last);
                             write_log(msg_alert);
                             strcat(msg, msg_alert);
-
                             strncpy(message.mtext, msg, max_msg_size);
 
                             if (msgsnd(msgq_id, &message, max_msg_size, 0) == -1) {
@@ -1175,18 +1252,7 @@ void push(node** root, char* msg, int priority) {
     }
 }
 
-// remove um no da internal queue
-void pop(node** root) {
-    node* temp = *root;
-    (*root) = (*root)->next;
-    free(temp->msg);
-    free(temp);
-}
 
-// verifica se a internal queue esta vazia
-int is_empty(node** root) {
-    return (*root) == NULL;
-}
 
 // retorna o tamanho da internal queue
 int size(node* root) {
@@ -1224,11 +1290,12 @@ void* console_reader() {
             pthread_cond_wait(&cond_internal_queue, &mutex_internal_queue);
         }
         else {
+            // prioridade 1 é mais prioritario que prioridade 2
             if (!is_empty(&root)) {
-                push(&root, received, 2);
+                push(&root, received, 1);
             }
             else {
-                root = create_new_node(received, 2);
+                root = create_new_node(received, 1);
                 //push(&root, received, 2);
             }
         }
@@ -1265,10 +1332,10 @@ void* sensor_reader() {
         }
         else {
             if (!is_empty(&root)) {
-                push(&root, received, 1);
+                push(&root, received, 2);
             }
             else {
-                root = create_new_node(received, 1);
+                root = create_new_node(received, 2);
                 //push(&root, received, 1);
             }
         }
@@ -1278,10 +1345,6 @@ void* sensor_reader() {
 
     pthread_exit(NULL);
     return NULL;
-}
-
-char* peek(node** root) {
-    return (*root)->msg;
 }
 
 // thread dispatcher
@@ -1312,7 +1375,11 @@ void* dispatcher() {
                 } */
 
                 if (shared_memory->workers_list[i] == 1) {
-                    write_log("WORKER OCUPADO");
+                    char* text = NULL;
+                    text = (char*) malloc((strlen("WORKER OCUPADO") + sizeof(i)) * sizeof(char) + 1);
+                    sprintf(text, "WORKER %d OCUPADO", i);
+                    write_log(text);
+                    free(text);
                 }
                 else {
                     // if (worker_sem_val == 1) {
@@ -1325,8 +1392,8 @@ void* dispatcher() {
                     // }
                 }
             }
-            // só para verificar
-            printf("POP: %s\n", peek(&root));
+            // só para verificar    
+            // printf("POP: %s\n", peek(&root));
             pop(&root);
             // Depois de reteriar uma mensagem da internal queue desbloqueia o console reader
             pthread_cond_signal(&cond_internal_queue);
@@ -1358,10 +1425,7 @@ void system_manager(char* config_file) {
     // alocar memoria para os unnamed pipes
     unnamed_pipes = malloc(config.n_workers * sizeof(int*));
 
-    // alocar memoria para os unnamed semaphores
-    // sems_worker = malloc(config.n_workers * sizeof(sem_t));
-
-    shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys); // isto aqui???????????????????????
+    shared_memory->workers_list = (int*) (((void*) shared_memory->alerts) + sizeof(alert_data) * config.max_alerts);
 
 
     // inicializar workers
@@ -1412,7 +1476,7 @@ void system_manager(char* config_file) {
         wait(NULL);
     }
 
-    free(shared_memory->workers_list);
+    free(unnamed_pipes);
     // wait(NULL);
 
 }

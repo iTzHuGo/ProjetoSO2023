@@ -21,10 +21,10 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // int user_console_id = atoi(argv[1]);	// identificador da consola
+    int user_console_id = atoi(argv[1]);  // identificador da consola
 
     // Inicializa o processo do user console
-    user_console();
+    user_console(user_console_id);
 
     return 0;
 }
