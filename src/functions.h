@@ -7,7 +7,6 @@
 #define LOG_FILE "log.txt"
 #define SENSOR_PIPE "SENSOR_PIPE"
 #define CONSOLE_PIPE "CONSOLE_PIPE"
-#define QUEUE_NAME "/QUEUE_NAME"
 
 // Includes
 #include <sys/types.h>

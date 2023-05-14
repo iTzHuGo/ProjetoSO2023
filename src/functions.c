@@ -323,7 +323,7 @@ void user_console(int console_id) {
     printf("\texit\n\tSair do User Console\n\n");
     printf("\tstats\n\tApresenta estatísticas referentes aos dados enviados pelos sensores\n\n");
     printf("\treset\n\tLimpa todas as estatísticas calculadas até ao momento pelo sistema\n\n");
-    printf("\tsensors\n\tLista todos os Sensorsque enviaram dados ao sistema\n\n");
+    printf("\tsensors\n\tLista todos os Sensors que enviaram dados ao sistema\n\n");
     printf("\tadd_alert [id] [chave] [min] [max]\n\tAdiciona uma nova regra de alerta ao sistema\n\n");
     printf("\tremove_alert [id]\n\tRemove uma regra de alerta do sistema\n\n");
     printf("\tlist_alerts\n\tLista todas as regras de alerta que existem no sistema\n\n");
@@ -481,8 +481,10 @@ void user_console(int console_id) {
                 }
                 char msg[BUFFER_SIZE * 2];
                 sprintf(msg, "%s %s", instruction[0], instruction[1]);
+#if DEBUG
                 printf("remover: %s\n", instruction[1]);
                 printf("msg: %s\n", msg);
+#endif
                 write(fd_named_pipe_console, msg, strlen(msg) + 1);
 
                 key_t key = ftok("msgfile", 'A');
@@ -614,8 +616,8 @@ void worker(int id) {
         sem_wait(sem_workers);
 
 
-        char* textxx = (char*) malloc((strlen("WORKER  BUSY") + sizeof(id)) * sizeof(char) + 1);
-        sprintf(textxx, "WORKER %d BUSY", id);
+        char* textxx = (char*) malloc((strlen("WORKER: BUSY") + sizeof(id)) * sizeof(char) + 1);
+        sprintf(textxx, "WORKER%d: BUSY", id);
         write_log(textxx);
         free(textxx);
 
@@ -671,6 +673,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: STATS PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: STATS PROCESSING COMPLETED", id);
+            write_log(text);
+            free(text);
         }
 
         else if (strcmp(instruction[0], "reset") == 0) {
@@ -710,6 +718,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: RESET PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: RESET PROCESSING COMPLETED", id);
+            write_log(text);
+            free(text);
         }
 
         else if (strcmp(instruction[0], "sensors") == 0) {
@@ -746,6 +760,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: SENSORS PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: SENSORS PROCESSING COMPLETED", id);
+            write_log(text);
+            free(text);
         }
 
         else if (strcmp(instruction[0], "add_alert") == 0) {
@@ -799,6 +819,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: ADD ALERT  () PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + sizeof(instruction[1]) * sizeof(char) + sizeof(instruction[2]) * sizeof(char) + sizeof(instruction[3]) * sizeof(char) + sizeof(instruction[4]) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: ADD ALERT %s (%s %s TO %s) PROCESSING COMPLETED", id, instruction[1], instruction[2], instruction[3], instruction[4]);
+            write_log(text);
+            free(text);
         }
 
         else if (strcmp(instruction[0], "remove_alert") == 0) {
@@ -860,11 +886,15 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: REMOVE ALERT  () PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + sizeof(instruction[1]) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: REMOVE ALERT %s PROCESSING COMPLETED", id, instruction[1]);
+            write_log(text);
+            free(text);
         }
 
         else if (strcmp(instruction[0], "list_alerts") == 0) {
-            printf("WORKER: List_alerts\n");
-
             key_t key = ftok("msgfile", 'A');
             int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
@@ -897,6 +927,12 @@ void worker(int id) {
                 printf("Erro ao enviar mensagem.\n");
                 exit(EXIT_FAILURE);
             }
+
+            char* text = NULL;
+            text = (char*) malloc((strlen("WORKERx: LIST ALERTS  () PROCESSING COMPLETED") + sizeof(id)) * sizeof(char) + 1);
+            sprintf(text, "WORKER%d: LIST ALERTS PROCESSING COMPLETED", id);
+            write_log(text);
+            free(text);
         }
 
         // receber dados sensor
@@ -1010,8 +1046,8 @@ void worker(int id) {
         shared_memory->workers_list[id] = 0;
         sem_post(sem_shm);
 
-        char* textxxx = (char*) malloc((strlen("WORKER  READY") + sizeof(id)) * sizeof(char) + 1);
-        sprintf(textxxx, "WORKER %d READY", id);
+        char* textxxx = (char*) malloc((strlen("WORKER: READY") + sizeof(id)) * sizeof(char) + 1);
+        sprintf(textxxx, "WORKER%d: READY", id);
         write_log(textxxx);
         free(textxxx);
 
@@ -1059,11 +1095,12 @@ void alerts_watcher() {
             if (strcmp(shared_memory->keys[i].name, "") != 0) {
                 for (int j = 0; j < config.max_alerts; j++) {
                     if (strcmp(shared_memory->alerts[j].key, shared_memory->keys[i].name) == 0) {
-                        printf("KEY: %s\n", shared_memory->keys[i].name);
+                        // printf("KEY: %s\n", shared_memory->keys[i].name);
                         if ((shared_memory->keys[i].last > shared_memory->alerts[j].max) || (shared_memory->keys[i].last < shared_memory->alerts[j].min)) {
                             message.mtype = 7 + shared_memory->alerts[j].console_id;
+                            // ALERT (ROOM1_TEMP 10 TO 20) TRIGGERED
 
-                            sprintf(msg_alert, "ALERT:  KEY %s VALUE %d", shared_memory->keys[i].name, shared_memory->keys[i].last);
+                            sprintf(msg_alert, "ALERT (%s %d TO %d) TRIGGERED", shared_memory->keys[i].name, shared_memory->alerts[j].min, shared_memory->alerts[j].max);
                             write_log(msg_alert);
                             strcat(msg, msg_alert);
                             strncpy(message.mtext, msg, max_msg_size);
@@ -1282,7 +1319,9 @@ void* console_reader() {
     while (!terminate_threads) {
         received_length = read(fd_console_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
+#if DEBUG
         printf("RECEIVED: %s\n", received);
+#endif
         pthread_mutex_lock(&mutex_internal_queue);
 
         if (size(root) > config.queue_sz) {
@@ -1322,7 +1361,7 @@ void* sensor_reader() {
     while (!terminate_threads) {
         received_length = read(fd_sensor_pipe, received, sizeof(received));
         received[received_length - 1] = '\0';
-        printf("SENSOR: %s\n", received);
+        // printf("SENSOR: %s\n", received);
         pthread_mutex_lock(&mutex_internal_queue);
 
         if (size(root) > config.queue_sz) {
@@ -1384,10 +1423,15 @@ void* dispatcher() {
                 else {
                     // if (worker_sem_val == 1) {
                         // escrever no pipe do worker
+                    char text[BUFFER_SIZE + 100];
+                    sprintf(text, "DISPATCHER: %s SENT FOR PROCESSING ON WORKER %d", peek(&root), i);
+                    write_log(text);
                     if (write(unnamed_pipes[i][1], peek(&root), strlen(peek(&root)) + 1) == -1) {
                         write_log("ERROR WRITING TO WORKER PIPE");
                         terminate();
                     }
+                    // ADD ALERT AL1 (ROOM1_TEMP 10 TO 20) SENT FOR PROCESSING ON WORKER 2
+
                     break;
                     // }
                 }
