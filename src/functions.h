@@ -119,8 +119,7 @@ pthread_mutex_t mutex_internal_queue;
 pthread_cond_t cond_internal_queue;
 
 // Message queue
-//int msgq_id;
-msgq mq;
+int msgq_id;
 
 // Funcoes
 void init();

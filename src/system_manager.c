@@ -11,8 +11,6 @@ int main(int argc, char* argv[]) {
     }
 
     pid_system_manager = getpid();
-    
-    signal(SIGINT, terminate);
 
     system_manager(argv[1]);
 

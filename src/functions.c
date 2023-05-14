@@ -1,30 +1,6 @@
 // Ana Rita Martins Oliveira 2020213684
 // Hugo Sobral de Barros 2020234332
 
-/*
-    * meter as posicoes da lista a -1 e se for -1 e porque esta vazia escrever la
-    * meter a cena das condicoes dos pids e depois o kill no terminate
-    * meter os mutexes
-    * meter as variaveis de condicao
-    * no dispatcher ele faz o signal
-    * nos readers ele faz o cond wait pelo signal do dispatcher
-    *
-    * criar a internal queue dentro do system manager como diz no enunciado
-    *
-    * as mensagens enviadas pelo sensor tem menor prioridade que as mensagens enviadas pelo console reader
-    * enviando primeiro as mensagens do console reader e depois as do sensor para os processos worker
-    *
-    * se a fila estiver cheia, descarta a mensagem do sensor
-    * se a fila estiver cheia, da lock no mutex e espera que a fila fique vazia para meter a cena do console reader
-    *
-    * os workers  e o dispatcher comunicam com unnamed pipes
-    * quando uma entrada é enviada para um worker, essa entrada é removida da lista e o worker passa a estar 'busy' para que o dispatcher nao lhe volte a enviar uma tarefa ate ele acabar a que recebeu antes
-    *
-    * quando um worker termina de processar o pedido, deve colocar o seu estado como 'free'
-    *
-    * ha 2 tipos de mensagens, as que sao enviadas pelo user console e as que sao enviadas peloo sensor
-*/
-
 #include "functions.h"
 
 // inicializa o programa
@@ -60,6 +36,12 @@ void init() {
     write_log("[DEBUG] SEMAPHORE FOR SHARED MEMORY CREATED");
 #endif
 
+    // inicializacao da message queue
+    if((msgq_id = msgget(IPC_PRIVATE, IPC_CREAT|0777)) == -1) {
+    	perror("Cannot create message queue");
+		exit(1);
+	}
+
     // inicializacao do semaforo para os workers
     sem_unlink("SEM_WORKERS");
     sem_workers = sem_open("SEM_WORKERS", O_CREAT | O_EXCL, 0700, 1);
@@ -80,9 +62,6 @@ void init() {
 #if DEBUG
     write_log("[DEBUG] SEMAPHORE FOR WORKERS CREATED");
 #endif
-
-    // inicializacao a raiz da internal queue
-    //root = NULL;
 
     // inicializacao dos mutexes
     mutex_internal_queue = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
@@ -110,8 +89,6 @@ void init() {
         write_log("ERROR OPENING CONSOLE PIPE");
         exit(1);
     }
-
-
 }
 
 // inicializa a memoria partilhada
@@ -132,14 +109,6 @@ void init_shared_mem() {
 #if DEBUG
     write_log("[DEBUG] SHARED MEMORY CREATED");
 #endif
-
-    // inicializacao dos campos da memoria partilhada
-    // shared_memory->queue_sz = 0;
-    // shared_memory->n_workers = 0;
-    // shared_memory->max_keys = 0;
-    // shared_memory->max_sensors = 0;
-    // shared_memory->max_alerts = 0;
-
 }
 
 // remove um no da internal queue
@@ -206,7 +175,7 @@ void terminate() {
     unlink(CONSOLE_PIPE);
 
     // fechar message queue
-    msgctl(msgget(ftok("msgfile", 'A'), 0666 | IPC_CREAT), IPC_RMID, NULL);
+    msgctl(msgq_id, IPC_RMID, NULL);
 
     // fechar ficheiro log
     fclose(log_file);
@@ -268,18 +237,7 @@ void sigint_console(int sigum) {
 
 void* msgw_listener(void* id) {
     int console_id = *((int*) id);
-
-    key_t key = ftok("msgfile", 'A');
-    int msgq_id = msgget(key, 0666 | IPC_CREAT);
     msgq message;
-
-    printf("Console %d listening...\n", console_id);
-
-    if (msgq_id == -1) {
-        printf("Erro ao recuperar a fila de mensagens.\n");
-        exit(EXIT_FAILURE);
-    }
-
     int max_msg_size = BUFFER_SIZE;
 
     while (true) {
@@ -312,11 +270,6 @@ void user_console(int console_id) {
         printf("ERROR OPENING CONSOLE PIPE");
         exit(1);
     }
-    /* // inicializar message queue
-    if ((msgq_id = msgget((int) QUEUE_NAME, IPC_CREAT | 0777)) == -1) {
-        write_log("ERROR CREATING MESSAGE QUEUE");
-        exit(1);
-    } */
 
     // apresentacao do menu
     printf("Menu:\n");
@@ -329,8 +282,6 @@ void user_console(int console_id) {
     printf("\tlist_alerts\n\tLista todas as regras de alerta que existem no sistema\n\n");
 
     pthread_create(&console_reader_msgq_listener_thread, NULL, msgw_listener, &console_id);
-
-    // pthread_join(console_reader_msgq_listener_thread, NULL);
 
     // leitura do input do utilizador
     while (fgets(line, BUFFER_SIZE, stdin) != NULL) {
@@ -358,15 +309,7 @@ void user_console(int console_id) {
 
                 printf("Key Last Min Max Avg Count\n");
 
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 1, 0) == -1) {
@@ -380,15 +323,7 @@ void user_console(int console_id) {
             else if (strcmp(instruction[0], "reset") == 0) {
                 write(fd_named_pipe_console, instruction[0], strlen(instruction[0]) + 1);
 
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 2, 0) == -1) {
@@ -404,15 +339,7 @@ void user_console(int console_id) {
 
                 printf("ID\n");
 
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 3, 0) == -1) {
@@ -454,15 +381,8 @@ void user_console(int console_id) {
                 printf("min: %s\n", instruction[3]);
                 printf("max: %s\n\n", instruction[4]);
 #endif
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
+
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 4, 0) == -1) {
@@ -487,15 +407,7 @@ void user_console(int console_id) {
 #endif
                 write(fd_named_pipe_console, msg, strlen(msg) + 1);
 
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 5, 0) == -1) {
@@ -511,15 +423,7 @@ void user_console(int console_id) {
 
                 printf("ID Key MIN MAX\n");
 
-                key_t key = ftok("msgfile", 'A');
-                int msgq_id = msgget(key, 0666 | IPC_CREAT);
                 msgq message;
-
-                if (msgq_id == -1) {
-                    printf("Erro ao recuperar a fila de mensagens.\n");
-                    exit(EXIT_FAILURE);
-                }
-
                 int max_msg_size = BUFFER_SIZE;
 
                 if (msgrcv(msgq_id, &message, max_msg_size, 6, 0) == -1) {
@@ -566,8 +470,6 @@ void sensor(char* id, int interval, char* key, int min, int max) {
         exit(1);
     }
 
-
-
     char message[BUFFER_SIZE];
     while (1) {
         sprintf(message, "%s#%s#%d", id, key, rand() % (max - min + 1) + min);
@@ -597,12 +499,6 @@ void worker(int id) {
 
     char buffer[BUFFER_SIZE];
 
-    /* // inicializar message queue
-    if ((msgq_id = msgget(QUEUE_NAME, IPC_CREAT | 0777)) == -1) {
-        write_log("ERROR CREATING MESSAGE QUEUE");
-        exit(1);
-    } */
-
     while (1) {
         // read [0] || write [1]
         if (read(unnamed_pipes[id][0], buffer, BUFFER_SIZE) < 0) {
@@ -621,10 +517,7 @@ void worker(int id) {
         write_log(textxx);
         free(textxx);
 
-        // printf("buffer: %s\n", buffer);
-
         int aux = 0;
-        int id_console = 0;
         char instruction[6][BUFFER_SIZE];
         instruction[0][0] = '\0';
         instruction[1][0] = '\0';
@@ -641,15 +534,7 @@ void worker(int id) {
 
         // receber dados consol
         if (strcmp(instruction[0], "stats") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
-
             message.mtype = 1;
 
             char msg[BUFFER_SIZE];
@@ -682,15 +567,7 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "reset") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
-
             message.mtype = 2;
 
             char msg[BUFFER_SIZE];
@@ -727,14 +604,7 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "sensors") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
 
             message.mtype = 3;
 
@@ -769,14 +639,7 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "add_alert") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
 
             message.mtype = 4;
 
@@ -828,14 +691,7 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "remove_alert") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
 
             message.mtype = 5;
 
@@ -895,14 +751,7 @@ void worker(int id) {
         }
 
         else if (strcmp(instruction[0], "list_alerts") == 0) {
-            key_t key = ftok("msgfile", 'A');
-            int msgq_id = msgget(key, 0666 | IPC_CREAT);
             msgq message;
-
-            if (msgq_id == -1) {
-                perror("Erro ao criar ou recuperar a fila de mensagens");
-                exit(EXIT_FAILURE);
-            }
 
             message.mtype = 6;
 
@@ -976,7 +825,6 @@ void worker(int id) {
                 char* value = token;
                 // verificar se a key existe na lista de keys
                 int found = 0;
-                // int sensor_flag = 0;
                 sem_wait(sem_shm);
                 for (int i = 0; i < config.max_keys; i++) {
                     if (strcmp(shared_memory->keys[i].name, key) == 0) {
@@ -1007,10 +855,6 @@ void worker(int id) {
                         break;
                     }
                 }
-
-                // if (sensor_flag == 0) {
-                //     write_log("NO SPACE FOR NEW SENSOR INFORMATION DISCARDED2");
-                // } else {
                 if (found == 0) {
                     int key_flag = 0;
                     // se nao existir
@@ -1032,7 +876,6 @@ void worker(int id) {
                         write_log("NO SPACE FOR NEW KEY INFORMATION DISCARDED");
                     }
                 }
-                // }
             }
 
             sem_post(sem_shm);
@@ -1064,17 +907,7 @@ void alerts_watcher() {
     write_log(text);
     free(text);
 #endif
-    //faz coisas de alerts watcher
-
-    key_t key = ftok("msgfile", 'A');
-    int msgq_id = msgget(key, 0666 | IPC_CREAT);
     msgq message;
-
-    if (msgq_id == -1) {
-        perror("Erro ao criar ou recuperar a fila de mensagens");
-        exit(EXIT_FAILURE);
-    }
-
     char msg[BUFFER_SIZE];
     char msg_alert[BUFFER_SIZE];
     int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
@@ -1095,11 +928,8 @@ void alerts_watcher() {
             if (strcmp(shared_memory->keys[i].name, "") != 0) {
                 for (int j = 0; j < config.max_alerts; j++) {
                     if (strcmp(shared_memory->alerts[j].key, shared_memory->keys[i].name) == 0) {
-                        // printf("KEY: %s\n", shared_memory->keys[i].name);
                         if ((shared_memory->keys[i].last > shared_memory->alerts[j].max) || (shared_memory->keys[i].last < shared_memory->alerts[j].min)) {
                             message.mtype = 7 + shared_memory->alerts[j].console_id;
-                            // ALERT (ROOM1_TEMP 10 TO 20) TRIGGERED
-
                             sprintf(msg_alert, "ALERT (%s %d TO %d) TRIGGERED", shared_memory->keys[i].name, shared_memory->alerts[j].min, shared_memory->alerts[j].max);
                             write_log(msg_alert);
                             strcat(msg, msg_alert);
@@ -1335,7 +1165,6 @@ void* console_reader() {
             }
             else {
                 root = create_new_node(received, 1);
-                //push(&root, received, 2);
             }
         }
 
@@ -1366,7 +1195,7 @@ void* sensor_reader() {
 
         if (size(root) > config.queue_sz) {
             char text[BUFFER_SIZE + 30];
-            sprintf(text, "QUEUE FULL ORDER %s DELETED", received);  // TODO verificar frase
+            sprintf(text, "QUEUE FULL ORDER %s DELETED", received);
             write_log(text);
         }
         else {
@@ -1375,7 +1204,6 @@ void* sensor_reader() {
             }
             else {
                 root = create_new_node(received, 2);
-                //push(&root, received, 1);
             }
         }
 
@@ -1394,25 +1222,11 @@ void* dispatcher() {
     }
     write_log("THREAD DISPATCHER CREATED");
 
-    int* worker_sem_val = NULL;
-
     while (!terminate_threads) {
         pthread_mutex_lock(&mutex_internal_queue);
 
         while (!is_empty(&root)) {
-            // print shared memory sensors
-            // sem_wait(sem_shm);
-            // for (int i = 0; i < config.max_keys; i++) {
-            //     printf("\n\nSENSOR %d: %d\n\n", i, shared_memory->keys[i].last);
-            // }
-            // sem_post(sem_shm);
-            // procurar um worker livre e escrever no pipe dele
             for (int i = 0; i < config.n_workers; i++) {
-                /* if (sem_getvalue(&sems_worker[i], worker_sem_val) == -1) {
-                    write_log("ERROR GETTING SEM VALUE");
-                    terminate();
-                } */
-
                 if (shared_memory->workers_list[i] == 1) {
                     char* text = NULL;
                     text = (char*) malloc((strlen("WORKER OCUPADO") + sizeof(i)) * sizeof(char) + 1);
@@ -1421,8 +1235,7 @@ void* dispatcher() {
                     free(text);
                 }
                 else {
-                    // if (worker_sem_val == 1) {
-                        // escrever no pipe do worker
+                    // escrever no pipe do worker
                     char text[BUFFER_SIZE + 100];
                     sprintf(text, "DISPATCHER: %s SENT FOR PROCESSING ON WORKER %d", peek(&root), i);
                     write_log(text);
@@ -1430,14 +1243,9 @@ void* dispatcher() {
                         write_log("ERROR WRITING TO WORKER PIPE");
                         terminate();
                     }
-                    // ADD ALERT AL1 (ROOM1_TEMP 10 TO 20) SENT FOR PROCESSING ON WORKER 2
-
                     break;
-                    // }
                 }
             }
-            // só para verificar    
-            // printf("POP: %s\n", peek(&root));
             pop(&root);
             // Depois de reteriar uma mensagem da internal queue desbloqueia o console reader
             pthread_cond_signal(&cond_internal_queue);
@@ -1506,6 +1314,8 @@ void system_manager(char* config_file) {
         exit(1);
     }
 
+    signal(SIGINT, terminate);
+
     // criar threads
     pthread_create(&console_reader_thread, NULL, console_reader, NULL);
     pthread_create(&sensor_reader_thread, NULL, sensor_reader, NULL);
@@ -1516,11 +1326,9 @@ void system_manager(char* config_file) {
     pthread_join(sensor_reader_thread, NULL);
     pthread_join(dispatcher_thread, NULL);
 
-    for (int i = 0; i < config.n_workers; i++) {
+    for (int i = 0; i < config.n_workers + 1; i++) {
         wait(NULL);
     }
 
     free(unnamed_pipes);
-    // wait(NULL);
-
 }
