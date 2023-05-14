@@ -12,12 +12,12 @@ int main(int argc, char* argv[]) {
     }
 
     if (!is_digit(argv[1])) {
-        printf("CONSOLE IDENTIFIER INVALID");
+        printf("CONSOLE IDENTIFIER INVALID\n");
         exit(1);
     }
 
     if (atoi(argv[1]) < 0) {
-        printf("CONSOLE IDENTIFIER INVALID");
+        printf("CONSOLE IDENTIFIER INVALID\n");
         exit(1);
     }
 

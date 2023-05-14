@@ -690,20 +690,32 @@ void worker(int id) {
             char msg[BUFFER_SIZE];
             msg[0] = '\0';
             int space_alert = 0;
+            int alert_exists = 0;
+
             for (int i = 0; i < config.max_alerts; i++) {
-                if (strcmp(shared_memory->alerts[i].id, "") == 0) {
-                    space_alert = 1;
-                    strcpy(shared_memory->alerts[i].id, instruction[1]);
-                    strcpy(shared_memory->alerts[i].key, instruction[2]);
-                    shared_memory->alerts[i].min = atoi(instruction[3]);
-                    shared_memory->alerts[i].max = atoi(instruction[4]);
-                    strcat(msg, "OK\n");
+                if (strcmp(shared_memory->alerts[i].id, instruction[1]) == 0) {
+                    alert_exists = 1;
+                    strcat(msg, "ERROR\n");
                     break;
                 }
             }
 
-            if (space_alert == 0) {
-                strcat(msg, "ERROR\n");
+            if (alert_exists == 0) {
+                for (int i = 0; i < config.max_alerts; i++) {
+                    if (strcmp(shared_memory->alerts[i].id, "") == 0) {
+                        space_alert = 1;
+                        strcpy(shared_memory->alerts[i].id, instruction[1]);
+                        strcpy(shared_memory->alerts[i].key, instruction[2]);
+                        shared_memory->alerts[i].min = atoi(instruction[3]);
+                        shared_memory->alerts[i].max = atoi(instruction[4]);
+                        strcat(msg, "OK\n");
+                        break;
+                    }
+                }
+
+                if (space_alert == 0) {
+                    strcat(msg, "ERROR\n");
+                }
             }
 
             int max_msg_size = BUFFER_SIZE; // tamanho máximo para a mensagem
@@ -1119,9 +1131,6 @@ void read_config(char* config_file) {
 
     // inicializar a lista de alertas
     for (int j = 0; j < config.max_alerts; j++) {
-        printf("MAX_KEYS: %d\n", config.max_keys);
-        printf("MAX_ALERTS: %d\n", config.max_alerts);
-        printf("j: %d\n", j);
         strcpy(shared_memory->alerts[j].id, "");
         strcpy(shared_memory->alerts[j].key, "");
         shared_memory->alerts[j].min = 0;
@@ -1250,7 +1259,7 @@ void* sensor_reader() {
         pthread_mutex_lock(&mutex_internal_queue);
 
         if (size(root) > config.queue_sz) {
-            char text[BUFFER_SIZE];
+            char text[BUFFER_SIZE + 30];
             sprintf(text, "QUEUE FULL ORDER %s DELETED", received);  // TODO verificar frase
             write_log(text);
         }
@@ -1349,10 +1358,10 @@ void system_manager(char* config_file) {
     // alocar memoria para os unnamed pipes
     unnamed_pipes = malloc(config.n_workers * sizeof(int*));
 
-    // alocar memoria para os unnamed semaphores dos workers
+    // alocar memoria para os unnamed semaphores
     // sems_worker = malloc(config.n_workers * sizeof(sem_t));
 
-    shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys);
+    shared_memory->workers_list = (int*) (((void*) shared_memory->keys) + sizeof(key_data) * config.max_keys); // isto aqui???????????????????????
 
 
     // inicializar workers
